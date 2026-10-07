@@ -1,0 +1,30 @@
+{
+  "name": "puffballdandelion",
+  "version": "1.0.0",
+  "description": "Interactieve sfeerinstallatie: een wei vol pluizenbollen in WebGPU (Three.js + TSL)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/peppapoes/puffballDandelion.git"
+  },
+  "keywords": [],
+  "author": "femke",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/peppapoes/puffballDandelion/issues"
+  },
+  "homepage": "https://github.com/peppapoes/puffballDandelion#readme",
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "vite": "^8.3.3"
+  },
+  "type": "module",
+  "private": true
+}

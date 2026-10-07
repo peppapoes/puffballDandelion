@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Puffball Dandelion</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+
+    <!-- Startscherm: browsers laten pas geluid toe na een klik -->
+    <div id="start-screen">
+      <h1>Puffball Dandelion</h1>
+      <button id="start-button" type="button">Klik om te beginnen</button>
+      <p class="hint">↑ ↓ dag en nacht</p>
+    </div>
+
+    <div id="backend-badge" hidden></div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
