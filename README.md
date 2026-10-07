@@ -8,7 +8,9 @@ Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in p
 
 | Actie | Effect |
 | --- | --- |
-| ↑ / ↓ | Richting dag / richting nacht |
+| ↓ (tikken) | Een stap verder in de dag: zonsondergang, nacht, zonsopgang, dag, ... |
+| ↑ (tikken) | Een stap terug in de tijd |
+| ↓ / ↑ ingedrukt houden | De tijd loopt vloeiend door (een volle dag in ±10 seconden) |
 | Slepen | Rondkijken (tijdelijk, tijdens de ontwikkeling) |
 
 ## Techniek
@@ -46,9 +48,20 @@ public/
 
 | Shader | Maker | URL | Gebruik |
 | --- | --- | --- | --- |
-| Circadian | _TODO_ | _TODO_ | Lucht: dag, schemering, nacht (geport naar TSL) |
+| Circadian | Kiri | https://www.shadertoy.com/view/stdBWN | Lucht: dag, schemering, nacht (geport naar TSL in `src/world/Sky.js`) |
 | Fireflies at Dusk (CC0) | _TODO_ | _TODO_ | Knipperpatroon en gloed van de pluisjes 's nachts |
-| Non-accurate atmosphere (reserve) | _TODO_ | _TODO_ | Reserve voor de lucht |
+
+**Circadian** is een fork van, en bouwt voort op:
+
+- The sun, the sky and the clouds by StillTravelling: https://www.shadertoy.com/view/tdSXzD
+- Day and night sky cycle by László Matuska (@BitOfGold): https://www.shadertoy.com/view/ltlSWB
+- Weather by David Hoskins: https://www.shadertoy.com/view/4dsXWn
+- Edge of atmosphere by dmytro rubalskyi (ruba): https://www.shadertoy.com/view/XlXGzB
+- Auroras by nimitz: https://www.shadertoy.com/view/XtGGRt
+
+De originele GLSL staat ter referentie in `shaders/original/circadian.glsl`.
+
+**Aanpassingen in de port:** de kijkrichting volgt de Three.js-camera, de zonnestand volgt dag/nacht (pijltjes ↑/↓) in plaats van een automatische klok, de ruistextuur (iChannel0) wordt in code gemaakt, en de uitgeschakelde onderdelen (regen, simple sun, blur) zijn weggelaten.
 
 ### Muziek en geluid
 

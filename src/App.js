@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { createRenderer } from './core/renderer.js';
 import { createCamera } from './core/camera.js';
-import { uTimeOfDay, initWorldStateInput, updateWorldState } from './state/worldState.js';
+import { uTimeOfDay, uSunDirection, initWorldStateInput, updateWorldState } from './state/worldState.js';
 import { createSkyNode } from './world/Sky.js';
 import { createGround } from './world/Ground.js';
 import { createMeadow } from './world/Meadow.js';
@@ -53,6 +53,11 @@ export class App {
     this.sun.color.lerpColors(NIGHT_SUN, DAY_SUN, t);
     this.hemi.intensity = THREE.MathUtils.lerp(1.2, 1.0, t);
     this.hemi.color.lerpColors(NIGHT_SKY, DAY_SKY, t);
+
+    // Zonlicht uit dezelfde richting als de zon in de lucht (Sky.js);
+    // onder de horizon blijft het van boven komen, als maanlicht
+    const dir = uSunDirection.value;
+    this.sun.position.set(dir.x, Math.max(dir.y, 0.35), dir.z).normalize().multiplyScalar(40);
   }
 
   update(timestamp) {
