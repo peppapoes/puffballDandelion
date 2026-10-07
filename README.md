@@ -2,7 +2,7 @@
 
 Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in pluizenbolfase, waar de wind in golven overheen trekt. Stuur de wind, zoom in op één bloem en wrijf of blaas de pluisjes weg. De lucht gaat mee van dag naar nacht, en 's nachts wordt de wei een neon-veld vol lichtjes.
 
-**Live:** https://peppapoes.github.io/puffballDandelion/
+**Live:** https://delatterfemke.be/puffballDandelion/
 
 ## Bediening
 
