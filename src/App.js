@@ -1,15 +1,24 @@
 import * as THREE from 'three/webgpu';
 import { createRenderer } from './core/renderer.js';
-import { createCamera } from './core/camera.js';
-import { uTimeOfDay, uSunDirection, initWorldStateInput, updateWorldState } from './state/worldState.js';
+import { fog, rangeFogFactor } from 'three/tsl';
+import { createCamera, keepCameraAboveGround } from './core/camera.js';
+import {
+  uTimeOfDay, uSunDirection, uHorizonColor, initWorldStateInput, updateWorldState,
+} from './state/worldState.js';
 import { createSkyNode } from './world/Sky.js';
 import { createGround } from './world/Ground.js';
 import { createMeadow } from './world/Meadow.js';
+import { FlowerPhysics } from './world/FlowerPhysics.js';
+import { Pointer } from './interaction/Pointer.js';
 
 const DAY_SUN = new THREE.Color('#fff4e0');
 const NIGHT_SUN = new THREE.Color('#9fb4ff');
 const DAY_SKY = new THREE.Color('#cfe6f5');
 const NIGHT_SKY = new THREE.Color('#7f95d8');
+
+// Nevel: de wei vervaagt in de verte in de kleur van de horizon, zodat je nooit een rand ziet
+const FOG_NEAR = 12;
+const FOG_FAR = 70;
 
 /**
  * Houdt de hele installatie samen: renderer, scène, camera en de render-loop.
@@ -24,10 +33,14 @@ export class App {
     this.timer = new THREE.Timer();
 
     this.scene.backgroundNode = createSkyNode();
+    this.scene.fogNode = fog(uHorizonColor, rangeFogFactor(FOG_NEAR, FOG_FAR));
     this.createLights();
     this.scene.add(createGround());
     this.meadow = createMeadow();
     this.scene.add(this.meadow.mesh);
+
+    this.pointer = new Pointer(canvas);
+    this.flowerPhysics = new FlowerPhysics(this.meadow);
 
     initWorldStateInput();
     window.addEventListener('resize', () => this.onResize());
@@ -67,6 +80,11 @@ export class App {
     updateWorldState(delta);
     this.updateLights();
     this.controls.update();
+    keepCameraAboveGround(this.camera);
+
+    // Na de camera: cursorstraal bijwerken, dan de bloemen laten reageren
+    this.pointer.update(this.camera);
+    this.flowerPhysics.update(delta, this.pointer);
 
     this.renderer.render(this.scene, this.camera);
   }

@@ -3,8 +3,9 @@ import { color, mix } from 'three/tsl';
 import { uTimeOfDay } from '../state/worldState.js';
 import { heightAt } from './terrain.js';
 
-const SIZE = 140;
-const SEGMENTS = 160;
+// Groot genoeg om tot in de nevel aan de horizon te lopen: je ziet nooit de rand
+const SIZE = 600;
+const SEGMENTS = 240;
 
 /**
  * PLACEHOLDER-grond: glooiend vlak met een effen kleur.

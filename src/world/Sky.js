@@ -5,7 +5,7 @@ import {
   abs, clamp, cos, dot, exp, exp2, floor, fract, length, max, min, mix,
   normalize, pow, sin, smoothstep, sqrt, step,
 } from 'three/tsl';
-import { uSunHeight, uSunDirection } from '../state/worldState.js';
+import { uSunHeight, uSunDirection, uHorizonColor } from '../state/worldState.js';
 
 /**
  * De lucht: TSL-port van "Circadian" by Kiri
@@ -20,6 +20,7 @@ import { uSunHeight, uSunDirection } from '../state/worldState.js';
  * - zonnestand komt uit uTimeOfDay (pijltjes) i.p.v. automatisch uit iTime
  * - iChannel0 ("RGBA Noise Small") wordt in code nagemaakt
  * - uitgeschakelde onderdelen (regen, simple sun, blur) zijn weggelaten
+ * - onder de horizon de nevelkleur i.p.v. een waterspiegeling (naadloos met de wei)
  * - geen gamma-correctie op het einde: Three.js doet de sRGB-omzetting zelf
  */
 
@@ -322,6 +323,7 @@ const aurora = Fn(([roIn, rd, dither]) => {
 export function createSkyNode() {
   return Fn(() => {
     const D = normalize(positionWorldDirection).toVar(); // kijkrichting van de camera
+    const viewY = D.y.toVar(); // bewaren: D wordt hieronder gespiegeld voor de reflectie
     const O = vec3(0, CAMERA_HEIGHT, 0).toVar();
 
     const att = float(1).toVar();
@@ -363,6 +365,10 @@ export function createSkyNode() {
     color.addAssign(star);
     color.addAssign(aur.rgb.mul(scatatt));
 
-    return color;
+    // Aanpassing voor de wei: onder de horizon geen waterspiegeling maar de nevelkleur,
+    // exact dezelfde als de nevel over de grond (App.js). Vlak boven de horizon loopt
+    // de lucht er geleidelijk naartoe (±3°), als waas: zo is er nergens een naad.
+    const haze = float(1).sub(smoothstep(-0.005, 0.05, viewY));
+    return mix(color, uHorizonColor, haze);
   })();
 }

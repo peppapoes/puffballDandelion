@@ -1,4 +1,4 @@
-import { Vector2, Vector3, MathUtils } from 'three/webgpu';
+import { Vector2, Vector3, Color, MathUtils } from 'three/webgpu';
 import { uniform } from 'three/tsl';
 
 /**
@@ -42,6 +42,32 @@ const SUN_HEIGHT_SUNSET = 0.55; // net boven de horizon
 const SUN_HEIGHT_NOON = 1.32; // hoogste stand in het origineel
 const HALF_FOV = Math.tan(MathUtils.degToRad(60)) / 2; // 'fov/2.0' uit het origineel
 
+// Kleur van de lucht net boven de horizon, voor de nevel over de wei (App.js).
+// Gemeten in de Circadian-shader (zonder tonemapping), per uTimeOfDay.
+export const uHorizonColor = uniform(new Color());
+
+const HORIZON_KEYS = [
+  [0, new Color('#0b1110')], // middernacht
+  [0.25, new Color('#0d0803')], // late schemering
+  [0.375, new Color('#241a0a')], // schemering
+  [0.5, new Color('#392d16')], // zonsondergang
+  [0.625, new Color('#6b654d')], // gouden uur
+  [0.75, new Color('#70736a')], // namiddag
+  [0.875, new Color('#646d6f')],
+  [1, new Color('#646f74')], // middag
+];
+
+function updateHorizonColor(t) {
+  for (let i = 1; i < HORIZON_KEYS.length; i++) {
+    const [t1, c1] = HORIZON_KEYS[i];
+    if (t <= t1) {
+      const [t0, c0] = HORIZON_KEYS[i - 1];
+      uHorizonColor.value.lerpColors(c0, c1, (t - t0) / (t1 - t0));
+      return;
+    }
+  }
+}
+
 function updateSun() {
   const t = uTimeOfDay.value;
   // 0 → 0.5 → 1 = nacht → zonsondergang → middag
@@ -60,6 +86,8 @@ function updateSun() {
   uSunHeight.value = height;
   // Zelfde opbouw als 'Ds' in het origineel
   uSunDirection.value.set(side, height - 0.5, front).normalize();
+
+  updateHorizonColor(t);
 }
 
 // Pijltjes: tikken = één stap, ingedrukt houden = de tijd loopt door.
@@ -88,6 +116,13 @@ export function initWorldStateInput() {
   });
   // Venster verliest focus terwijl een pijltje ingedrukt is: niet blijven doorlopen
   window.addEventListener('blur', () => (heldDirection = 0));
+}
+
+/** Meteen naar een moment in de cyclus springen (handig om te testen in de console) */
+export function jumpToCycle(value) {
+  cycle = cycleTarget = value;
+  uTimeOfDay.value = timeOfDayFromCycle(cycle);
+  updateSun();
 }
 
 export function updateWorldState(delta) {
