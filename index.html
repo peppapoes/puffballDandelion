@@ -20,6 +20,14 @@
 
     <div id="backend-badge" hidden></div>
 
+    <!-- Handtracking (webcam + ml5): knop, status, webcambeeld en de cirkel die je hand volgt -->
+    <div id="hand-controls">
+      <p id="hand-status"></p>
+      <video id="hand-video" playsinline muted></video>
+      <button id="hand-button" type="button" hidden>✋ Gebruik je hand</button>
+    </div>
+    <div id="hand-indicator"></div>
+
     <script type="module" src="./src/main.js"></script>
   </body>
 </html>

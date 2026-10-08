@@ -11,13 +11,16 @@ Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in p
 | ↓ (tikken) | Een stap verder in de dag: zonsondergang, nacht, zonsopgang, dag, ... |
 | ↑ (tikken) | Een stap terug in de tijd |
 | ↓ / ↑ ingedrukt houden | De tijd loopt vloeiend door (een volle dag in ±10 seconden) |
-| Slepen | Rondkijken (tijdelijk, tijdens de ontwikkeling) |
+| Muis door de bloemen bewegen | De pluizenbollen worden meegeduwd en veren na |
+| ✋ Gebruik je hand (knop rechtsonder) | Webcam aan: wrijf met je hand door de wei en raak een veel groter stuk aan dan met de muis. Geen camera? De muis blijft werken. |
+| Slepen / scrollen | Rond de wei draaien en zoomen (begrensd) |
 
 ## Techniek
 
 - [Three.js](https://threejs.org/) met `WebGPURenderer` (`three/webgpu`), valt automatisch terug op WebGL2
 - Shaders in TSL (`three/tsl`)
 - [Vite](https://vite.dev/) als build-tool
+- [ml5.js](https://ml5js.org/) `handPose` (MediaPipe Hands-model) voor handtracking via de webcam, geladen van een CDN wanneer je de hand aanzet
 
 ## Lokaal draaien
 
@@ -35,8 +38,9 @@ src/
   main.js              startpunt + startscherm
   App.js               renderer, scène, camera, render-loop
   core/                renderer en camera
-  state/worldState.js  gedeelde wereldtoestand (uTimeOfDay, wind)
-  world/               lucht, grond, wei, windveld, terreinhoogte
+  state/worldState.js  gedeelde wereldtoestand (uTimeOfDay, zon, horizon, wind)
+  world/               lucht, grond, wei, windveld, terreinhoogte, veer-physics
+  interaction/         aanwijzers (muis, hand) en handtracking
 public/
   models/              Blender-exports (GLB)
   audio/               muziek en windgeruis
@@ -72,3 +76,5 @@ De originele GLSL staat ter referentie in `shaders/original/circadian.glsl`.
 ### Libraries
 
 - [three.js](https://github.com/mrdoob/three.js) (MIT)
+- [ml5.js](https://github.com/ml5js/ml5-next-gen) 1.4.0 (MIT), via https://unpkg.com/ml5@1.4.0/dist/ml5.min.js
+- [MediaPipe Hands](https://github.com/google-ai-edge/mediapipe) (Apache 2.0), het handmodel achter ml5 `handPose`, geladen door ml5 via https://cdn.jsdelivr.net/npm/@mediapipe/hands

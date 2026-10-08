@@ -6,15 +6,14 @@ const STIFFNESS_VARIATION = 0.25; // ±25% per bloem, zodat ze niet in hetzelfde
 const DAMPING = 2.5; // afremming (laag = lang natrillen, hoog = meteen stil)
 const MAX_OFFSET = 1.6; // maximale uitwijking van de top (wereld-units)
 
-// Cursor
-const TOUCH_MARGIN = 0.3; // hoe ver naast de bol de cursor nog effect heeft
+// Aanwijzers (muis, hand). Hoe groot hun aanraakgebied is, staat op de Pointer zelf.
 const DRAG = 8; // meesleuren in de bewegingsrichting van de cursor
 const PUSH = 12; // zacht wegduwen van de cursor, ook als die stilstaat
 const MAX_CURSOR_SPEED = 30; // te snelle rukken afvlakken (wereld-units per seconde)
 
 /**
  * Veer-physics voor de stelen: elke bloem is een gedempte veer.
- * De cursor duwt; de veer trekt terug en schiet een beetje door,
+ * Muis en hand duwen; de veer trekt terug en schiet een beetje door,
  * zodat de bloem natrilt in plaats van terug te springen.
  *
  * Uitkomst: uitwijking per bloem in meadow.pushAttribute → shader (Meadow.js).
@@ -29,12 +28,12 @@ export class FlowerPhysics {
     this.velocity = new Float32Array(count * 2);
     this.stiffness = new Float32Array(count);
     this.headHeight = new Float32Array(count);
-    this.touchRadius = new Float32Array(count);
+    this.headRadius = new Float32Array(count);
 
     this.flowers.forEach((flower, i) => {
       this.stiffness[i] = STIFFNESS * (1 + (Math.random() * 2 - 1) * STIFFNESS_VARIATION);
       this.headHeight[i] = meadow.stemHeight * flower.scale;
-      this.touchRadius[i] = meadow.headRadius * flower.scale + TOUCH_MARGIN;
+      this.headRadius[i] = meadow.headRadius * flower.scale;
     });
 
     // Hulpvectoren, één keer aangemaakt (niet elke frame opnieuw)
@@ -44,7 +43,8 @@ export class FlowerPhysics {
     this.previousClosest = new THREE.Vector3();
   }
 
-  update(delta, pointer) {
+  /** pointers = lijst aanwijzers (muis, hand); hun krachten tellen op */
+  update(delta, pointers) {
     // Grote sprongen (tab was even weg) zouden de veer laten ontploffen
     const dt = Math.min(delta, 1 / 30);
     if (dt <= 0) return;
@@ -55,10 +55,11 @@ export class FlowerPhysics {
       let forceX = 0;
       let forceZ = 0;
 
-      if (pointer.active) {
+      for (const pointer of pointers) {
+        if (!pointer.active) continue;
         const force = this.cursorForce(i, pointer, dt);
-        forceX = force.x;
-        forceZ = force.y;
+        forceX += force.x;
+        forceZ += force.y;
       }
 
       // Veer: a = -k·x - c·v + F
@@ -101,7 +102,7 @@ export class FlowerPhysics {
     pointer.ray.at(depth, this.closest);
 
     const distance = this.head.distanceTo(this.closest);
-    const radius = this.touchRadius[i];
+    const radius = this.headRadius[i] + pointer.touchMargin;
     if (distance >= radius) return result;
 
     // 1 in het midden van de bol, 0 aan de rand: zachte overgang

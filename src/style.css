@@ -67,6 +67,84 @@ body {
   font-size: 0.9rem;
 }
 
+/* --- Handtracking --- */
+
+#hand-controls {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  z-index: 5;
+  color: #f4f1ea;
+  font-size: 13px;
+}
+
+#hand-status:empty {
+  display: none;
+}
+
+#hand-status {
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+#hand-button {
+  font: inherit;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(244, 241, 234, 0.6);
+  background: rgba(0, 0, 0, 0.35);
+  color: inherit;
+  cursor: pointer;
+}
+
+#hand-button:hover {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+#hand-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+/* Webcambeeld: klein en gespiegeld, zodat bewegen voelt als in een spiegel */
+#hand-video {
+  display: none;
+  width: 160px;
+  border-radius: 10px;
+  transform: scaleX(-1);
+  opacity: 0.85;
+}
+
+#hand-video.visible {
+  display: block;
+}
+
+/* Cirkel die je hand volgt, zo groot als het gebied dat je aanraakt */
+#hand-indicator {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.75);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.25), rgba(255, 255, 255, 0) 70%);
+  box-shadow: 0 0 24px rgba(125, 249, 255, 0.45);
+  pointer-events: none; /* klikken en slepen gaan gewoon door naar de wei */
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 4;
+}
+
+#hand-indicator.visible {
+  opacity: 1;
+}
+
 #backend-badge {
   position: fixed;
   bottom: 12px;

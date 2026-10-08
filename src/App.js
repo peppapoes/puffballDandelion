@@ -9,7 +9,8 @@ import { createSkyNode } from './world/Sky.js';
 import { createGround } from './world/Ground.js';
 import { createMeadow } from './world/Meadow.js';
 import { FlowerPhysics } from './world/FlowerPhysics.js';
-import { Pointer } from './interaction/Pointer.js';
+import { Pointer, attachMouse } from './interaction/Pointer.js';
+import { HandTracker } from './interaction/HandTracker.js';
 
 const DAY_SUN = new THREE.Color('#fff4e0');
 const NIGHT_SUN = new THREE.Color('#9fb4ff');
@@ -19,6 +20,10 @@ const NIGHT_SKY = new THREE.Color('#7f95d8');
 // Nevel: de wei vervaagt in de verte in de kleur van de horizon, zodat je nooit een rand ziet
 const FOG_NEAR = 12;
 const FOG_FAR = 70;
+
+// Aanraakgebied rond een pluizenbol (m): de hand raakt een veel groter stuk van de wei
+const MOUSE_TOUCH_MARGIN = 0.3;
+const HAND_TOUCH_MARGIN = 1.6;
 
 /**
  * Houdt de hele installatie samen: renderer, scène, camera en de render-loop.
@@ -39,7 +44,13 @@ export class App {
     this.meadow = createMeadow();
     this.scene.add(this.meadow.mesh);
 
-    this.pointer = new Pointer(canvas);
+    // Aanwijzers: muis (klein) en hand via de webcam (groot)
+    this.mousePointer = new Pointer({ touchMargin: MOUSE_TOUCH_MARGIN });
+    attachMouse(this.mousePointer, canvas);
+    this.handPointer = new Pointer({ touchMargin: HAND_TOUCH_MARGIN });
+    this.handTracker = new HandTracker(this.handPointer);
+    this.pointers = [this.mousePointer, this.handPointer];
+
     this.flowerPhysics = new FlowerPhysics(this.meadow);
 
     initWorldStateInput();
@@ -50,6 +61,7 @@ export class App {
   /** Wordt opgeroepen na de klik op het startscherm (gebruikersgebaar: audio mag starten). */
   start() {
     // TODO: audio starten (ambient muziek + windgeruis)
+    this.handTracker.show();
   }
 
   createLights() {
@@ -82,9 +94,10 @@ export class App {
     this.controls.update();
     keepCameraAboveGround(this.camera);
 
-    // Na de camera: cursorstraal bijwerken, dan de bloemen laten reageren
-    this.pointer.update(this.camera);
-    this.flowerPhysics.update(delta, this.pointer);
+    // Na de camera: hand volgen, stralen bijwerken, dan de bloemen laten reageren
+    this.handTracker.update(delta);
+    for (const pointer of this.pointers) pointer.update(this.camera);
+    this.flowerPhysics.update(delta, this.pointers);
 
     this.renderer.render(this.scene, this.camera);
   }
