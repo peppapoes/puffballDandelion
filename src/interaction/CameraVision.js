@@ -1,8 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { daylightFromBrightness, isManualOverride } from '../state/worldState.js';
 import {
-  Fn, Loop, If, float, vec2, vec3, vec4, int, uniform, texture, instancedArray, instanceIndex,
-  positionGeometry, screenUV, abs, clamp, dot, floor, max, mix, pow, smoothstep,
+  Fn, Loop, float, vec2, vec3, texture, instancedArray, instanceIndex, abs, clamp, dot, max, pow,
 } from 'three/tsl';
 
 /**
@@ -16,8 +15,7 @@ import {
  * 3. Handtracking: het zwaartepunt van de beweging is waar je hand beweegt. Dat punt stuurt
  *    een Pointer met een groot aanraakgebied (FlowerPhysics) en een cirkel op het scherm.
  *
- * De resultaten gaan asynchroon terug naar JavaScript. Een zachte gloed op het scherm
- * toont wat de camera als beweging ziet.
+ * De resultaten gaan asynchroon terug naar JavaScript.
  */
 
 const GRID_W = 64;
@@ -28,7 +26,6 @@ const NOISE = 0.035; // kleinere verschillen zijn ruis van de camera, geen beweg
 const GAIN = 8; // verschil in helderheid → bewegingssterkte (0..1)
 const DECAY = 0.82; // per camerabeeld: hoe snel het spoor van een beweging uitdooft
 const BRIGHTNESS_EVERY = 6; // lichtmeter niet elk camerabeeld teruglezen (licht verandert traag)
-const OVERLAY_STRENGTH = 0.15; // zichtbaarheid van de gloed op het scherm (de cirkel toont de hand al)
 
 // Hand = zwaartepunt van de beweging
 const HAND_CELL_THRESHOLD = 0.15; // vakjes met minder beweging tellen niet mee
@@ -125,46 +122,6 @@ export class CameraVision {
       });
       this.brightnessBuffer.element(0).assign(sum.div(CELLS));
     })().compute(1);
-
-    this.overlay = this.createOverlay();
-  }
-
-  /** Zachte gloed over het scherm waar beweging is (bilineair tussen de vakjes) */
-  createOverlay() {
-    const motionBuffer = this.motionBuffer;
-    const strength = uniform(0);
-    this.overlayStrength = strength;
-
-    const cell = (x, y) => {
-      const cx = clamp(x, 0, GRID_W - 1);
-      const cy = clamp(y, 0, GRID_H - 1);
-      return motionBuffer.element(int(cy).mul(GRID_W).add(int(cx)));
-    };
-
-    const material = new THREE.MeshBasicNodeMaterial({
-      transparent: true,
-      depthTest: false,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    material.fog = false;
-    // Volledig scherm, los van de camera: hoeken van het vlak = hoeken van het scherm
-    material.vertexNode = vec4(positionGeometry.xy, 0, 1);
-    material.colorNode = Fn(() => {
-      const g = vec2(screenUV.x.mul(GRID_W).sub(0.5), screenUV.y.mul(GRID_H).sub(0.5));
-      const g0 = floor(g);
-      const f = g.sub(g0);
-      const top = mix(cell(g0.x, g0.y), cell(g0.x.add(1), g0.y), f.x);
-      const bottom = mix(cell(g0.x, g0.y.add(1)), cell(g0.x.add(1), g0.y.add(1)), f.x);
-      const m = smoothstep(0.05, 0.8, mix(top, bottom, f.y));
-      return vec3(0.75, 0.95, 1).mul(m).mul(strength);
-    })();
-
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    mesh.frustumCulled = false;
-    mesh.renderOrder = 999;
-    mesh.visible = false;
-    return mesh;
   }
 
   // --- Webcam ---
@@ -183,7 +140,6 @@ export class CameraVision {
 
       this.running = true;
       this.watchFrames();
-      this.overlay.visible = true;
       this.video.classList.add('visible');
       this.button.textContent = '📷 Camera uit';
       this.setStatus(
@@ -202,7 +158,6 @@ export class CameraVision {
   stop() {
     this.running = false;
     this.stopStream();
-    this.overlay.visible = false;
     this.motion.fill(0);
     this.brightness = null;
     this.loseHand();
@@ -222,7 +177,6 @@ export class CameraVision {
 
   /** Elke frame: hand volgen; bij een nieuw camerabeeld de compute shaders draaien en teruglezen */
   update(delta) {
-    this.overlayStrength.value = this.running ? OVERLAY_STRENGTH : 0;
     if (!this.running) return;
 
     this.followHand(delta);

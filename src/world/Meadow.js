@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import {
-  Fn, color, mix, vec3, float, dot, cross, select, abs, max, length, atan, fract, smoothstep, uniform, uv,
+  Fn, color, mix, vec2, vec3, float, dot, cross, select, fract, uniform, uv, texture,
   positionLocal, positionGeometry, normalGeometry, normalLocal, instancedArray, instanceIndex, int,
 } from 'three/tsl';
 import { uTimeOfDay } from '../state/worldState.js';
@@ -21,7 +21,7 @@ const NEAR_HEADS = 48; // aantal bollen met echte pluisjes
 const SEEDS_PER_HEAD = 72; // pluisjes per bol
 const SEED_LOWEST = -0.55; // geen pluisjes onderaan de bol, waar de steel zit (y van de richting)
 const LOD_INTERVAL = 0.1; // seconden tussen het opnieuw kiezen van de dichtste bollen
-const FAR_PUFF_SIZE = 0.92; // grootte van de verre bol t.o.v. een volle pluizenbol
+const IMPOSTOR_SIZE = 512; // resolutie van de gebakken foto van een pluizenbol (verre bollen)
 
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // ±137,5°: zoals de pitten van een zonnebloem
 
@@ -38,19 +38,20 @@ const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // ±137,5°: zoals de pitten
  * met dezelfde wind en dezelfde physics-buffer (offsetBuffer), dus ze buigen samen.
  */
 export class Meadow {
-  static async create() {
+  static async create(renderer) {
     const meadow = new Meadow();
     meadow.model = await loadPuffballModel(MODEL_SCALE);
-    meadow.build();
+    meadow.build(renderer);
     return meadow;
   }
 
-  build() {
+  build(renderer) {
     const model = this.model;
     this.group = new THREE.Group();
     this.stemHeight = model.stemHeight;
     // Volle pluizenbol (bol + pluisjes): voor de aanraking door muis en hand
     this.headRadius = model.receptacleRadius + model.seedLength;
+    this.puffRadius = this.headRadius; // kader van de gebakken foto en grootte van de verre bollen
 
     // Bloemen plaatsen, elk met een eigen grootte en draaiing
     this.flowers = scatterFlowers().map((position) => {
@@ -64,6 +65,7 @@ export class Meadow {
 
     this.createBuffers();
     this.createStems();
+    this.impostorTexture = this.bakeImpostor(renderer);
     this.createFarPuffs();
     this.createNearHeads();
 
@@ -155,11 +157,59 @@ export class Meadow {
   // --- Verre bollen (LOD) ---
 
   /**
+   * Impostor baking: één echte pluizenbol van het model (receptacle + pluisjes, zelfde
+   * gulden-hoekverdeling) wordt bij het opstarten van opzij gefotografeerd naar een afbeelding
+   * met doorzichtige achtergrond. De verre bollen tonen die afbeelding.
+   */
+  bakeImpostor(renderer) {
+    const { receptacleGeometry, pappusGeometry, acheneGeometry, materials, receptacleRadius } = this.model;
+    const scene = new THREE.Scene();
+    const flat = (c) => new THREE.MeshBasicNodeMaterial({ color: c, side: THREE.DoubleSide });
+    const parts = [
+      [pappusGeometry, flat(materials.pappus.color)],
+      [acheneGeometry, flat((materials.achene ?? materials.receptacle).color)],
+    ].filter(([geometry]) => geometry);
+
+    scene.add(new THREE.Mesh(receptacleGeometry, flat(materials.receptacle.color)));
+    const directions = this.seedDirections.value.array;
+    const rotations = this.seedRotations.value.array;
+    for (let k = 0; k < SEEDS_PER_HEAD; k++) {
+      for (const [geometry, material] of parts) {
+        const seed = new THREE.Mesh(geometry, material);
+        seed.quaternion.fromArray(rotations, k * 4);
+        seed.position.fromArray(directions, k * 4).multiplyScalar(receptacleRadius);
+        scene.add(seed);
+      }
+    }
+
+    // Orthografische camera (geen perspectief), recht van opzij, kader = volle pluizenbol
+    const r = this.puffRadius;
+    const camera = new THREE.OrthographicCamera(-r, r, r, -r, 0.01, r * 4);
+    camera.position.set(0, 0, r * 2);
+
+    // MSAA voor zachte lijntjes, mipmaps zodat ze ook klein (ver weg) rustig blijven
+    const target = new THREE.RenderTarget(IMPOSTOR_SIZE, IMPOSTOR_SIZE, { samples: 4 });
+    target.texture.generateMipmaps = true;
+    target.texture.minFilter = THREE.LinearMipmapLinearFilter;
+
+    const clearColor = renderer.getClearColor(new THREE.Color());
+    const clearAlpha = renderer.getClearAlpha();
+    renderer.setClearColor(0x000000, 0); // doorzichtige achtergrond
+    renderer.setRenderTarget(target);
+    renderer.render(scene, camera);
+    renderer.setRenderTarget(null);
+    renderer.setClearColor(clearColor, clearAlpha);
+
+    scene.traverse((object) => object.material?.dispose());
+    return target.texture;
+  }
+
+  /**
    * Verre bollen als billboard: een plat vierkantje dat altijd naar de camera kijkt,
-   * met een getekende pluizenbol (kern, straaltjes, parachuutjes). 2 driehoeken per bloem.
+   * met de gebakken foto van een echte pluizenbol (impostor). 2 driehoeken per bloem.
    */
   createFarPuffs() {
-    const radius = (this.model.receptacleRadius + this.model.seedLength) * FAR_PUFF_SIZE;
+    const radius = this.puffRadius;
     const material = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false });
 
     // Rechts en omhoog van de camera (elke frame bijgewerkt in update)
@@ -175,28 +225,17 @@ export class Meadow {
       return this.headPosition(i).add(corner.mul(size));
     })();
 
-    // De pluizenbol tekenen: p = plek op het vierkantje (-1..1), r = afstand tot het midden
-    const p = uv().mul(2).sub(1);
-    const r = length(p);
-    const spin = this.flowerBuffer.element(instanceIndex).x.mul(12.9898); // elke bloem anders gedraaid
-    const angle = atan(p.y, p.x).add(spin).div(Math.PI * 2);
+    // Gebakken foto; de helft van de bloemen gespiegeld, zodat niet alle bollen identiek zijn
+    const mirror = fract(this.flowerBuffer.element(instanceIndex).x.mul(12.9898)).greaterThan(0.5);
+    const photo = texture(this.impostorTexture, vec2(select(mirror, uv().x.oneMinus(), uv().x), uv().y));
 
-    const core = smoothstep(0.17, 0.1, r); // bruine kern
-    const rays = float(1).sub(smoothstep(0, 0.35, abs(fract(angle.mul(40)).sub(0.5)).mul(2))) // straaltjes
-      .mul(smoothstep(0.95, 0.3, r));
-    const fans = smoothstep(0.45, 0.85, r).mul(smoothstep(1, 0.85, r)) // parachuutjes aan de buitenkant
-      .mul(fract(angle.mul(173)).mul(0.5).add(0.5));
-    const haze = smoothstep(1, 0, r).mul(0.25); // donzige vulling: je kijkt door veel pluisjes
-    const alpha = max(max(core, rays.mul(0.4)), max(fans.mul(0.45), haze));
-
-    // Kleur: zoals de echte pluisjes (applyPuffColor), met de kern in de kleur van de receptacle
-    const day = mix(color('#b9c4ff'), color(this.model.materials.pappus.color), uTimeOfDay);
-    const light = mix(float(0.35), float(0.8), uTimeOfDay); // onbelicht materiaal: zelf dimmen 's nachts
+    // Kleur zoals de echte pluisjes (applyPuffColor): wit overdag, blauwig met neon-gloed 's nachts.
+    // Onbelicht materiaal, dus zelf dimmen 's nachts.
+    const tint = mix(color('#b9c4ff'), vec3(1), uTimeOfDay);
+    const light = mix(float(0.35), float(0.85), uTimeOfDay);
     const glow = color('#7df9ff').mul(uTimeOfDay.oneMinus()).mul(0.6);
-    const puff = day.mul(light).add(glow);
-    // Kern: 's nachts veel donkerder (licht²), zoals de echte receptacle
-    material.colorNode = mix(puff, color(this.model.materials.receptacle.color).mul(light.mul(light)), core);
-    material.opacityNode = alpha;
+    material.colorNode = photo.rgb.mul(tint).mul(light).add(glow);
+    material.opacityNode = photo.a;
 
     this.addMesh(new THREE.InstancedMesh(new THREE.PlaneGeometry(2, 2), material, this.flowers.length));
   }

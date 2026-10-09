@@ -45,7 +45,7 @@ export class App {
     this.scene.fogNode = fog(uHorizonColor, rangeFogFactor(FOG_NEAR, FOG_FAR));
     this.createLights();
     this.scene.add(createGround());
-    this.meadow = await Meadow.create(); // laadt het Blender-model (public/models/puffball.glb)
+    this.meadow = await Meadow.create(this.renderer); // laadt het Blender-model (public/models/puffball.glb)
     this.scene.add(this.meadow.group);
 
     // Aanwijzers: muis (klein) en hand via de webcam (groot)
@@ -56,7 +56,6 @@ export class App {
 
     // Webcam als sensor op de GPU: beweging (hand) en licht van de kamer (dag/nacht)
     this.cameraVision = new CameraVision(this.renderer, this.handPointer);
-    this.scene.add(this.cameraVision.overlay);
 
     this.flowerPhysics = new FlowerPhysics(this.meadow, this.renderer); // compute shader op de GPU
 
