@@ -1,16 +1,17 @@
 import * as THREE from 'three/webgpu';
 import { createRenderer } from './core/renderer.js';
+import { PerfMonitor, benchmark } from './core/PerfMonitor.js';
 import { fog, rangeFogFactor } from 'three/tsl';
 import { createCamera, keepCameraAboveGround } from './core/camera.js';
 import {
-  uTimeOfDay, uSunDirection, uHorizonColor, initWorldStateInput, updateWorldState,
+  uTimeOfDay, uSunDirection, uHorizonColor, initWorldStateInput, updateWorldState, setDaylightFromRoom,
 } from './state/worldState.js';
-import { createSkyNode } from './world/Sky.js';
+import { Sky } from './world/Sky.js';
 import { createGround } from './world/Ground.js';
-import { createMeadow } from './world/Meadow.js';
+import { Meadow } from './world/Meadow.js';
 import { FlowerPhysics } from './world/FlowerPhysics.js';
 import { Pointer, attachMouse } from './interaction/Pointer.js';
-import { HandTracker } from './interaction/HandTracker.js';
+import { CameraVision } from './interaction/CameraVision.js';
 
 const DAY_SUN = new THREE.Color('#fff4e0');
 const NIGHT_SUN = new THREE.Color('#9fb4ff');
@@ -33,25 +34,31 @@ const HAND_TOUCH_MARGIN = 1.6;
 export class App {
   async init(canvas) {
     this.renderer = await createRenderer(canvas);
+    this.perf = new PerfMonitor(this.renderer); // ?debug in de URL
     this.scene = new THREE.Scene();
     ({ camera: this.camera, controls: this.controls } = createCamera(canvas));
     this.timer = new THREE.Timer();
 
-    this.scene.backgroundNode = createSkyNode();
+    this.sky = new Sky();
+    this.scene.backgroundNode = this.sky.backgroundNode;
+    this.resizeSky();
     this.scene.fogNode = fog(uHorizonColor, rangeFogFactor(FOG_NEAR, FOG_FAR));
     this.createLights();
     this.scene.add(createGround());
-    this.meadow = createMeadow();
-    this.scene.add(this.meadow.mesh);
+    this.meadow = await Meadow.create(); // laadt het Blender-model (public/models/puffball.glb)
+    this.scene.add(this.meadow.group);
 
     // Aanwijzers: muis (klein) en hand via de webcam (groot)
     this.mousePointer = new Pointer({ touchMargin: MOUSE_TOUCH_MARGIN });
     attachMouse(this.mousePointer, canvas);
     this.handPointer = new Pointer({ touchMargin: HAND_TOUCH_MARGIN });
-    this.handTracker = new HandTracker(this.handPointer);
     this.pointers = [this.mousePointer, this.handPointer];
 
-    this.flowerPhysics = new FlowerPhysics(this.meadow);
+    // Webcam als sensor op de GPU: beweging (hand) en licht van de kamer (dag/nacht)
+    this.cameraVision = new CameraVision(this.renderer, this.handPointer);
+    this.scene.add(this.cameraVision.overlay);
+
+    this.flowerPhysics = new FlowerPhysics(this.meadow, this.renderer); // compute shader op de GPU
 
     initWorldStateInput();
     window.addEventListener('resize', () => this.onResize());
@@ -61,7 +68,7 @@ export class App {
   /** Wordt opgeroepen na de klik op het startscherm (gebruikersgebaar: audio mag starten). */
   start() {
     // TODO: audio starten (ambient muziek + windgeruis)
-    this.handTracker.show();
+    this.cameraVision.show();
   }
 
   createLights() {
@@ -89,22 +96,60 @@ export class App {
     this.timer.update(timestamp);
     const delta = this.timer.getDelta();
 
+    const perf = this.perf;
+
+    perf.begin('world');
+    // Lichtmeter van de webcam stuurt dag/nacht (tenzij je net de pijltjes gebruikte)
+    if (this.cameraVision.brightness !== null) setDaylightFromRoom(this.cameraVision.brightness);
     updateWorldState(delta);
     this.updateLights();
     this.controls.update();
     keepCameraAboveGround(this.camera);
+    perf.end('world');
 
-    // Na de camera: hand volgen, stralen bijwerken, dan de bloemen laten reageren
-    this.handTracker.update(delta);
+    // Na de camera: webcam verwerken (GPU) en hand volgen, stralen bijwerken, bloemen laten reageren
+    perf.begin('camera');
+    this.cameraVision.update(delta);
+    perf.end('camera');
+
+    perf.begin('physics');
     for (const pointer of this.pointers) pointer.update(this.camera);
     this.flowerPhysics.update(delta, this.pointers);
+    this.meadow.update(delta, this.camera); // LOD: dichtste bollen krijgen echte pluisjes
+    perf.end('physics');
 
+    perf.begin('render');
+    this.renderFrame();
+    perf.end('render');
+
+    perf.frame(delta);
+  }
+
+  /**
+   * Eerst de dure lucht op lage resolutie, dan de scène (met die lucht als achtergrond).
+   * target = null: naar het scherm; een render target: onzichtbaar (voor de benchmark)
+   */
+  renderFrame(target = null) {
+    this.sky.render(this.renderer, this.camera);
+    this.renderer.setRenderTarget(target);
     this.renderer.render(this.scene, this.camera);
+    this.renderer.setRenderTarget(null);
+  }
+
+  resizeSky() {
+    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    this.sky.setSize(size.x, size.y);
+  }
+
+  /** Echte kost per frame meten (console: await app.benchmark()) */
+  benchmark(frames) {
+    return benchmark(this, frames);
   }
 
   onResize() {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.resizeSky();
   }
 }

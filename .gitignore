@@ -1,3 +1,6 @@
 node_modules/
 .DS_Store
 dist/
+
+# Automatische back-ups van Blender (model.blend1, model.blend2, ...)
+*.blend[0-9]*

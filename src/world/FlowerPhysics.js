@@ -1,4 +1,7 @@
 import * as THREE from 'three/webgpu';
+import {
+  Fn, If, float, vec2, vec3, uniform, instancedArray, instanceIndex, dot, length, pow,
+} from 'three/tsl';
 
 // Veer: hoe stijf de steel is en hoe snel hij uitdeint
 const STIFFNESS = 30; // terugtrekkende kracht (hoger = sneller en strakker terug)
@@ -10,125 +13,137 @@ const MAX_OFFSET = 1.6; // maximale uitwijking van de top (wereld-units)
 const DRAG = 8; // meesleuren in de bewegingsrichting van de cursor
 const PUSH = 12; // zacht wegduwen van de cursor, ook als die stilstaat
 const MAX_CURSOR_SPEED = 30; // te snelle rukken afvlakken (wereld-units per seconde)
+const MAX_POINTERS = 2; // muis + hand
 
 /**
- * Veer-physics voor de stelen: elke bloem is een gedempte veer.
+ * Veer-physics voor de stelen, als compute shader op de GPU: elke bloem is een
+ * gedempte veer, en alle bloemen worden tegelijk berekend (één thread per bloem).
  * Muis en hand duwen; de veer trekt terug en schiet een beetje door,
  * zodat de bloem natrilt in plaats van terug te springen.
  *
- * Uitkomst: uitwijking per bloem in meadow.pushAttribute → shader (Meadow.js).
+ * Uitkomst: uitwijking per bloem in meadow.offsetBuffer, die de vertex-shader
+ * van de bloemen rechtstreeks leest (Meadow.js). JavaScript stuurt alleen de
+ * stralen van de aanwijzers door.
  */
 export class FlowerPhysics {
-  constructor(meadow) {
-    this.flowers = meadow.flowers;
-    this.pushAttribute = meadow.pushAttribute;
+  constructor(meadow, renderer) {
+    this.renderer = renderer;
+    this.offsetBuffer = meadow.offsetBuffer;
+    const count = meadow.flowers.length;
 
-    const count = this.flowers.length;
-    this.offset = this.pushAttribute.array; // x/z per bloem, rechtstreeks in de GPU-buffer
-    this.velocity = new Float32Array(count * 2);
-    this.stiffness = new Float32Array(count);
-    this.headHeight = new Float32Array(count);
-    this.headRadius = new Float32Array(count);
-
-    this.flowers.forEach((flower, i) => {
-      this.stiffness[i] = STIFFNESS * (1 + (Math.random() * 2 - 1) * STIFFNESS_VARIATION);
-      this.headHeight[i] = meadow.stemHeight * flower.scale;
-      this.headRadius[i] = meadow.headRadius * flower.scale;
+    // Vaste gegevens per bloem, één keer naar de GPU:
+    // flowerData = midden van de bol in rust (x, y, z); flowerParams = bolgrootte + stijfheid
+    const data = new Float32Array(count * 4);
+    const params = new Float32Array(count * 4);
+    meadow.flowers.forEach((flower, i) => {
+      const head = flower.position.clone().add(flower.headOffset);
+      data.set([head.x, head.y, head.z, 0], i * 4);
+      params[i * 4] = meadow.headRadius * flower.scale;
+      params[i * 4 + 1] = STIFFNESS * (1 + (Math.random() * 2 - 1) * STIFFNESS_VARIATION);
     });
+    this.flowerData = instancedArray(data, 'vec4');
+    this.flowerParams = instancedArray(params, 'vec4');
+    this.velocityBuffer = instancedArray(count, 'vec2');
 
-    // Hulpvectoren, één keer aangemaakt (niet elke frame opnieuw)
-    this.head = new THREE.Vector3();
-    this.toHead = new THREE.Vector3();
-    this.closest = new THREE.Vector3();
-    this.previousClosest = new THREE.Vector3();
+    // Per frame vanuit JavaScript: tijdstap en de stralen van de aanwijzers (nu + vorige frame)
+    this.uDelta = uniform(0);
+    this.pointerUniforms = Array.from({ length: MAX_POINTERS }, () => ({
+      active: uniform(0),
+      margin: uniform(0),
+      origin: uniform(new THREE.Vector3()),
+      direction: uniform(new THREE.Vector3(0, 0, -1)),
+      previousOrigin: uniform(new THREE.Vector3()),
+      previousDirection: uniform(new THREE.Vector3(0, 0, -1)),
+    }));
+
+    this.computeNode = this.createCompute().compute(count);
   }
 
-  /** pointers = lijst aanwijzers (muis, hand); hun krachten tellen op */
+  createCompute() {
+    const { flowerData, flowerParams, offsetBuffer, velocityBuffer, uDelta } = this;
+
+    return Fn(() => {
+      const i = instanceIndex;
+      const data = flowerData.element(i);
+      const params = flowerParams.element(i);
+      const offset = offsetBuffer.element(i);
+      const velocity = velocityBuffer.element(i);
+
+      // Huidige positie van de pluizenbol (rustpositie + uitwijking)
+      const head = data.xyz.add(vec3(offset.x, 0, offset.y)).toVar();
+      const force = vec2(0).toVar();
+
+      // Kracht van elke aanwijzer (JavaScript-lus: wordt uitgeschreven in de shader)
+      for (const pointer of this.pointerUniforms) {
+        If(pointer.active.greaterThan(0.5), () => {
+          // Punt op de straal dat het dichtst bij de bol ligt
+          const depth = dot(head.sub(pointer.origin), pointer.direction).toVar();
+          const closest = pointer.origin.add(pointer.direction.mul(depth)).toVar();
+          const distance = length(head.sub(closest));
+          const radius = params.x.add(pointer.margin);
+
+          If(depth.greaterThan(0).and(distance.lessThan(radius)), () => {
+            // 1 in het midden van de bol, 0 aan de rand: zachte overgang
+            const strength = pow(float(1).sub(distance.div(radius)), 2).toVar();
+
+            // Meesleuren: hoe beweegt de aanwijzer op deze diepte? (vorige straal, zelfde diepte)
+            const previousClosest = pointer.previousOrigin.add(pointer.previousDirection.mul(depth));
+            const speed = closest.xz.sub(previousClosest.xz).div(uDelta).toVar();
+            const speedLength = length(speed);
+            If(speedLength.greaterThan(MAX_CURSOR_SPEED), () => {
+              speed.mulAssign(float(MAX_CURSOR_SPEED).div(speedLength));
+            });
+            force.addAssign(speed.mul(DRAG).mul(strength));
+
+            // Wegduwen: van de aanwijzer af, horizontaal
+            const away = head.xz.sub(closest.xz).toVar();
+            const awayLength = length(away);
+            If(awayLength.greaterThan(1e-4), () => {
+              force.addAssign(away.div(awayLength).mul(PUSH).mul(strength));
+            });
+          });
+        });
+      }
+
+      // Veer: a = -k·x - c·v + F
+      const acceleration = offset.mul(params.y).negate().sub(velocity.mul(DAMPING)).add(force);
+
+      // Semi-impliciete Euler: eerst snelheid, dan positie (stabiel voor veren)
+      velocity.addAssign(acceleration.mul(uDelta));
+      const newOffset = offset.add(velocity.mul(uDelta)).toVar();
+
+      // Steel kan niet oneindig ver buigen
+      const offsetLength = length(newOffset);
+      If(offsetLength.greaterThan(MAX_OFFSET), () => {
+        newOffset.mulAssign(float(MAX_OFFSET).div(offsetLength));
+      });
+      offset.assign(newOffset);
+    })();
+  }
+
+  /** Elke frame: aanwijzers doorgeven en de compute shader draaien */
   update(delta, pointers) {
     // Grote sprongen (tab was even weg) zouden de veer laten ontploffen
     const dt = Math.min(delta, 1 / 30);
     if (dt <= 0) return;
+    this.uDelta.value = dt;
 
-    for (let i = 0; i < this.flowers.length; i++) {
-      const ix = i * 2;
-      const iz = i * 2 + 1;
-      let forceX = 0;
-      let forceZ = 0;
+    this.pointerUniforms.forEach((u, i) => {
+      const pointer = pointers[i];
+      u.active.value = pointer?.active ? 1 : 0;
+      if (!pointer?.active) return;
+      u.margin.value = pointer.touchMargin;
+      u.origin.value.copy(pointer.ray.origin);
+      u.direction.value.copy(pointer.ray.direction);
+      u.previousOrigin.value.copy(pointer.previousRay.origin);
+      u.previousDirection.value.copy(pointer.previousRay.direction);
+    });
 
-      for (const pointer of pointers) {
-        if (!pointer.active) continue;
-        const force = this.cursorForce(i, pointer, dt);
-        forceX += force.x;
-        forceZ += force.y;
-      }
-
-      // Veer: a = -k·x - c·v + F
-      const k = this.stiffness[i];
-      const accelX = -k * this.offset[ix] - DAMPING * this.velocity[ix] + forceX;
-      const accelZ = -k * this.offset[iz] - DAMPING * this.velocity[iz] + forceZ;
-
-      // Semi-impliciete Euler: eerst snelheid, dan positie (stabiel voor veren)
-      this.velocity[ix] += accelX * dt;
-      this.velocity[iz] += accelZ * dt;
-      this.offset[ix] += this.velocity[ix] * dt;
-      this.offset[iz] += this.velocity[iz] * dt;
-
-      // Steel kan niet oneindig ver buigen
-      const length = Math.hypot(this.offset[ix], this.offset[iz]);
-      if (length > MAX_OFFSET) {
-        this.offset[ix] *= MAX_OFFSET / length;
-        this.offset[iz] *= MAX_OFFSET / length;
-      }
-    }
-
-    this.pushAttribute.needsUpdate = true;
+    this.renderer.compute(this.computeNode);
   }
 
-  /** Kracht van de cursor op bloem i (x/z), of nul als de cursor de bol niet raakt */
-  cursorForce(i, pointer, dt) {
-    const result = { x: 0, y: 0 };
-    const flower = this.flowers[i];
-
-    // Huidige positie van de pluizenbol (rustpositie + uitwijking)
-    this.head.set(
-      flower.position.x + this.offset[i * 2],
-      flower.position.y + this.headHeight[i],
-      flower.position.z + this.offset[i * 2 + 1]
-    );
-
-    // Punt op de cursorstraal dat het dichtst bij de bol ligt
-    const depth = this.toHead.subVectors(this.head, pointer.ray.origin).dot(pointer.ray.direction);
-    if (depth <= 0) return result; // bol ligt achter de camera
-    pointer.ray.at(depth, this.closest);
-
-    const distance = this.head.distanceTo(this.closest);
-    const radius = this.headRadius[i] + pointer.touchMargin;
-    if (distance >= radius) return result;
-
-    // 1 in het midden van de bol, 0 aan de rand: zachte overgang
-    const strength = (1 - distance / radius) ** 2;
-
-    // Meesleuren: hoe beweegt de cursor op deze diepte? (vorige straal, zelfde diepte)
-    pointer.previousRay.at(depth, this.previousClosest);
-    let speedX = (this.closest.x - this.previousClosest.x) / dt;
-    let speedZ = (this.closest.z - this.previousClosest.z) / dt;
-    const speed = Math.hypot(speedX, speedZ);
-    if (speed > MAX_CURSOR_SPEED) {
-      speedX *= MAX_CURSOR_SPEED / speed;
-      speedZ *= MAX_CURSOR_SPEED / speed;
-    }
-    result.x += speedX * DRAG * strength;
-    result.y += speedZ * DRAG * strength;
-
-    // Wegduwen: van de cursor af, horizontaal
-    const awayX = this.head.x - this.closest.x;
-    const awayZ = this.head.z - this.closest.z;
-    const awayLength = Math.hypot(awayX, awayZ);
-    if (awayLength > 1e-4) {
-      result.x += (awayX / awayLength) * PUSH * strength;
-      result.y += (awayZ / awayLength) * PUSH * strength;
-    }
-
-    return result;
+  /** Uitwijkingen teruglezen (alleen om te testen/debuggen: await app.flowerPhysics.readOffsets()) */
+  async readOffsets() {
+    return new Float32Array(await this.renderer.getArrayBufferAsync(this.offsetBuffer.value));
   }
 }

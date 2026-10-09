@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, Loop, If, float, vec2, vec3, vec4, texture, time, select,
-  screenSize, screenCoordinate, positionWorldDirection,
+  screenSize, screenCoordinate, screenUV, positionWorldDirection,
   abs, clamp, cos, dot, exp, exp2, floor, fract, length, max, min, mix,
   normalize, pow, sin, smoothstep, sqrt, step,
 } from 'three/tsl';
@@ -22,6 +22,8 @@ import { uSunHeight, uSunDirection, uHorizonColor } from '../state/worldState.js
  * - uitgeschakelde onderdelen (regen, simple sun, blur) zijn weggelaten
  * - onder de horizon de nevelkleur i.p.v. een waterspiegeling (naadloos met de wei)
  * - geen gamma-correctie op het einde: Three.js doet de sRGB-omzetting zelf
+ * - snelheid: atmosfeer, wolken en noorderlicht op lage resolutie (render target),
+ *   sterren en horizonwaas op volle resolutie (zie class Sky onderaan)
  */
 
 // --- Instellingen (de #defines en consts uit het origineel) ---
@@ -49,7 +51,6 @@ const S = 0.999; // concentratie voor de zon
 const S2 = S; // SOFT_SUN
 const HR = 8e3; // hoogte Rayleigh-verstrooiing
 const HM = 1.2e3; // hoogte Mie-verstrooiing
-const TS = CAMERA_HEIGHT / 2.5e5;
 
 const bM = vec3(21e-6); // Mie-coëfficiënt
 const bR = vec3(5.8e-6, 13.5e-6, 33.1e-6); // Rayleigh-coëfficiënt (blauwe lucht)
@@ -318,57 +319,98 @@ const aurora = Fn(([roIn, rd, dither]) => {
   return col.mul(2.8);
 }, { roIn: 'vec3', rd: 'vec3', dither: 'float', return: 'vec4' });
 
-// --- mainImage ---
+// --- mainImage, opgesplitst voor de snelheid ---
 
-export function createSkyNode() {
+// Waas aan de horizon: onder HAZE_BOTTOM volledig nevelkleur, boven HAZE_TOP volledig lucht (±3°)
+const HAZE_BOTTOM = -0.005;
+const HAZE_TOP = 0.05;
+
+// Resolutie van de dure lucht t.o.v. het scherm, per as (0.25 = 1/16 van de pixels).
+// Atmosfeer en wolken zijn zacht: uitvergroten zie je nauwelijks. Sterren blijven scherp.
+const SKY_RESOLUTION = 0.25;
+
+/**
+ * Het dure deel (atmosfeer, wolken, noorderlicht): wordt op lage resolutie
+ * in een textuur gerenderd. Onder de horizon wordt niets berekend, want daar
+ * toont de achtergrond toch alleen de nevelkleur.
+ */
+function createSkyColorNode() {
   return Fn(() => {
-    const D = normalize(positionWorldDirection).toVar(); // kijkrichting van de camera
-    const viewY = D.y.toVar(); // bewaren: D wordt hieronder gespiegeld voor de reflectie
-    const O = vec3(0, CAMERA_HEIGHT, 0).toVar();
+    const D = normalize(positionWorldDirection); // kijkrichting van de camera
+    const color = vec3(0).toVar();
 
-    const att = float(1).toVar();
-    const star = vec3(0).toVar();
-    const aur = vec4(0).toVar();
+    If(D.y.greaterThan(HAZE_BOTTOM), () => {
+      const O = vec3(0, CAMERA_HEIGHT, 0);
+      const scatatt = float(1).sub(min(1, uSunHeight.mul(2.2)));
 
-    const fade = smoothstep(0, 0.01, abs(D.y)).mul(0.5).add(0.9);
-    const staratt = float(1).sub(min(1, uSunHeight.mul(2)));
-    const scatatt = float(1).sub(min(1, uSunHeight.mul(2.2)));
-    const dither = hash21(screenCoordinate.xy);
-    const isNight = uSunHeight.lessThan(0.5);
+      const scattered = scatter(O, D).toVar();
+      const scat = bM.mul(scattered.w).mul(0.1).mul(scatatt);
+      color.assign(scattered.xyz.add(scat.mul(0.1)));
 
-    If(D.y.lessThan(-TS), () => {
-      // Onder de horizon: spiegeling, alsof er water ligt
-      O.assign(O.add(D.mul(O.y.negate().div(D.y))));
-      const ripple = sin(time.add(noise2D(O.xz.add(vec2(0, time.mul(-1e3)))).mul(6.2831))).mul(0.003);
-      D.assign(normalize(vec3(D.x, D.y.negate().add(ripple), D.z)));
-      att.assign(0.6);
-      star.assign(stars(D));
-      If(isNight, () => {
-        aur.assign(smoothstep(0, 2.5, aurora(O, D, dither)));
-      });
-    }).Else(() => {
-      const O1 = O.add(D.mul(O.y.div(D.y)));
-      const twinkle = sin(time.add(noise2D(O1.xz.add(vec2(0, time.mul(0.8)))).mul(6.2831))).mul(0.0009);
-      star.assign(stars(normalize(D.add(vec3(1, twinkle, 0)))));
-      If(isNight, () => {
-        aur.assign(smoothstep(0, 1.5, aurora(O, D, dither)).mul(fade));
+      // Noorderlicht alleen als de zon onder is
+      If(uSunHeight.lessThan(0.5), () => {
+        const fade = smoothstep(0, 0.01, abs(D.y)).mul(0.5).add(0.9);
+        const dither = hash21(screenCoordinate.xy);
+        const aur = smoothstep(0, 1.5, aurora(O, D, dither)).mul(fade);
+        color.addAssign(aur.rgb.mul(scatatt));
       });
     });
 
-    star.mulAssign(att.mul(staratt));
+    return color;
+  })();
+}
 
-    const scattered = scatter(O, D).toVar();
-    const color = scattered.xyz.mul(att).toVar();
-    const scat = bM.mul(scattered.w).mul(0.1).mul(att).mul(scatatt);
+/**
+ * De achtergrond op volle resolutie: uitvergrote lucht + scherpe sterren + waas.
+ * Aanpassing voor de wei: onder de horizon geen waterspiegeling maar de nevelkleur,
+ * exact dezelfde als de nevel over de grond (App.js). Zo is er nergens een naad.
+ */
+function createBackgroundNode(skyTexture) {
+  return Fn(() => {
+    const D = normalize(positionWorldDirection);
+    const color = texture(skyTexture, screenUV).rgb.toVar();
 
-    color.addAssign(scat.mul(0.1));
-    color.addAssign(star);
-    color.addAssign(aur.rgb.mul(scatatt));
+    // Sterren (goedkoop, maar pixelscherp): alleen boven de horizon en als het donker genoeg is
+    If(D.y.greaterThan(0).and(uSunHeight.lessThan(0.5)), () => {
+      const O = vec3(0, CAMERA_HEIGHT, 0);
+      const O1 = O.add(D.mul(O.y.div(D.y)));
+      const twinkle = sin(time.add(noise2D(O1.xz.add(vec2(0, time.mul(0.8)))).mul(6.2831))).mul(0.0009);
+      const staratt = float(1).sub(min(1, uSunHeight.mul(2)));
+      color.addAssign(stars(normalize(D.add(vec3(1, twinkle, 0)))).mul(staratt));
+    });
 
-    // Aanpassing voor de wei: onder de horizon geen waterspiegeling maar de nevelkleur,
-    // exact dezelfde als de nevel over de grond (App.js). Vlak boven de horizon loopt
-    // de lucht er geleidelijk naartoe (±3°), als waas: zo is er nergens een naad.
-    const haze = float(1).sub(smoothstep(-0.005, 0.05, viewY));
+    const haze = float(1).sub(smoothstep(HAZE_BOTTOM, HAZE_TOP, D.y));
     return mix(color, uHorizonColor, haze);
   })();
+}
+
+/**
+ * De lucht: rendert elke frame eerst het dure deel in een kleine textuur
+ * (met dezelfde camera, zodat de kijkrichting klopt), en gebruikt die als
+ * achtergrond van de echte scène.
+ */
+export class Sky {
+  constructor() {
+    // HalfFloat: kleuren boven 1 (de zon) mogen niet afgekapt worden
+    this.target = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
+    this.skyScene = new THREE.Scene();
+    this.skyScene.backgroundNode = createSkyColorNode();
+    this.backgroundNode = createBackgroundNode(this.target.texture);
+  }
+
+  /** width/height = grootte van het canvas in echte pixels (drawing buffer) */
+  setSize(width, height) {
+    this.target.setSize(
+      Math.max(1, Math.round(width * SKY_RESOLUTION)),
+      Math.max(1, Math.round(height * SKY_RESOLUTION))
+    );
+  }
+
+  /** Elke frame, vóór de scène: dure lucht in de textuur renderen */
+  render(renderer, camera) {
+    const previous = renderer.getRenderTarget();
+    renderer.setRenderTarget(this.target);
+    renderer.render(this.skyScene, camera);
+    renderer.setRenderTarget(previous);
+  }
 }

@@ -67,9 +67,9 @@ body {
   font-size: 0.9rem;
 }
 
-/* --- Handtracking --- */
+/* --- Webcam (beweging + licht) --- */
 
-#hand-controls {
+#camera-controls {
   position: fixed;
   right: 16px;
   bottom: 16px;
@@ -82,17 +82,17 @@ body {
   font-size: 13px;
 }
 
-#hand-status:empty {
+#camera-status:empty {
   display: none;
 }
 
-#hand-status {
+#camera-status {
   padding: 4px 10px;
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.45);
 }
 
-#hand-button {
+#camera-button {
   font: inherit;
   padding: 8px 16px;
   border-radius: 999px;
@@ -102,17 +102,17 @@ body {
   cursor: pointer;
 }
 
-#hand-button:hover {
+#camera-button:hover {
   background: rgba(0, 0, 0, 0.55);
 }
 
-#hand-button:disabled {
+#camera-button:disabled {
   opacity: 0.6;
   cursor: wait;
 }
 
 /* Webcambeeld: klein en gespiegeld, zodat bewegen voelt als in een spiegel */
-#hand-video {
+#camera-video {
   display: none;
   width: 160px;
   border-radius: 10px;
@@ -120,7 +120,7 @@ body {
   opacity: 0.85;
 }
 
-#hand-video.visible {
+#camera-video.visible {
   display: block;
 }
 
@@ -143,6 +143,21 @@ body {
 
 #hand-indicator.visible {
   opacity: 1;
+}
+
+/* Prestatiemeter (?debug in de URL) */
+#perf-panel {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font: 12px/1.45 ui-monospace, Menlo, monospace;
+  color: #d8ffe0;
+  background: rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  z-index: 20;
 }
 
 #backend-badge {

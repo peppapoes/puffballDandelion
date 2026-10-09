@@ -99,6 +99,12 @@ const CYCLE_FOLLOW_SPEED = 0.6; // hoe snel de wereld het doel volgt (per second
 
 let heldDirection = 0; // -1 = ↑ ingedrukt, 1 = ↓ ingedrukt, 0 = niets
 
+// Lichtmeter (webcam): helderheid van de kamer → dag/nacht. Pijltjes nemen even voorrang.
+const ROOM_DARK = 0.1; // gemiddelde helderheid van het camerabeeld in een donkere kamer → nacht
+const ROOM_BRIGHT = 0.45; // ... in een lichte kamer → dag
+const MANUAL_OVERRIDE_MS = 20000; // na een pijltje volgt de wereld 20 s de pijltjes, niet het licht
+let manualUntil = 0;
+
 const KEY_DIRECTIONS = { ArrowUp: -1, ArrowDown: 1 };
 
 export function initWorldStateInput() {
@@ -106,6 +112,7 @@ export function initWorldStateInput() {
     const direction = KEY_DIRECTIONS[event.key];
     if (!direction) return;
     event.preventDefault(); // pagina niet laten scrollen
+    manualUntil = performance.now() + MANUAL_OVERRIDE_MS;
     if (event.repeat) return; // automatische herhaling: update() regelt het doorlopen
     cycleTarget += direction * CYCLE_STEP;
     heldDirection = direction;
@@ -113,9 +120,43 @@ export function initWorldStateInput() {
 
   window.addEventListener('keyup', (event) => {
     if (KEY_DIRECTIONS[event.key] === heldDirection) heldDirection = 0;
+    manualUntil = performance.now() + MANUAL_OVERRIDE_MS;
   });
   // Venster verliest focus terwijl een pijltje ingedrukt is: niet blijven doorlopen
   window.addEventListener('blur', () => (heldDirection = 0));
+}
+
+/** Helderheid van de kamer (0..1) → tijd van de dag (0 = nacht, 1 = dag) */
+export function daylightFromBrightness(brightness) {
+  return MathUtils.smoothstep(brightness, ROOM_DARK, ROOM_BRIGHT);
+}
+
+/** Volgt de wereld nu de pijltjes (true) of het licht van de kamer (false)? */
+export function isManualOverride() {
+  return performance.now() < manualUntil;
+}
+
+/**
+ * Lichtmeter: helderheid van de kamer (0..1, gemiddelde van het camerabeeld) stuurt dag/nacht.
+ * Kiest het dichtstbijzijnde punt in de cyclus met die tijd van de dag, zodat de wereld
+ * niet plots de andere kant van de dag op draait. Doet niets kort na een pijltje.
+ */
+export function setDaylightFromRoom(brightness) {
+  if (performance.now() < manualUntil) return;
+
+  const t = daylightFromBrightness(brightness); // 0 = nacht, 1 = dag
+  const evening = (1 - t) / 2; // die tijd van de dag op de avondkant van de cyclus (0..0.5)
+  const base = Math.floor(cycle);
+  let best = cycleTarget;
+  let bestDistance = Infinity;
+  for (const candidate of [base - 1, base, base + 1].flatMap((k) => [k + evening, k + 1 - evening])) {
+    const distance = Math.abs(candidate - cycle);
+    if (distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+  cycleTarget = best;
 }
 
 /** Meteen naar een moment in de cyclus springen (handig om te testen in de console) */

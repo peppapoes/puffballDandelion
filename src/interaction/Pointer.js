@@ -5,7 +5,7 @@ import * as THREE from 'three/webgpu';
  * Bewaart ook de straal van de vorige frame, zodat de physics kan afleiden
  * hoe snel en in welke richting de aanwijzer door de wei beweegt.
  *
- * Wordt gestuurd door de muis (attachMouse) of door de hand (HandTracker).
+ * Wordt gestuurd door de muis (attachMouse) of door de hand (CameraVision).
  * touchMargin = hoe ver naast een pluizenbol de aanwijzer nog effect heeft:
  * klein voor de muis, groot voor een hand.
  */

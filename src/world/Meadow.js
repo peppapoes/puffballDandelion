@@ -1,92 +1,301 @@
 import * as THREE from 'three/webgpu';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
-  color, mix, smoothstep, vec3, dot, positionLocal, positionGeometry, instancedDynamicBufferAttribute,
+  Fn, color, mix, vec3, float, dot, cross, select, abs, max, length, atan, fract, smoothstep, uniform, uv,
+  positionLocal, positionGeometry, normalGeometry, normalLocal, instancedArray, instanceIndex, int,
 } from 'three/tsl';
 import { uTimeOfDay } from '../state/worldState.js';
 import { windAt } from './wind.js';
 import { heightAt } from './terrain.js';
+import { loadPuffballModel } from './models.js';
 
+const MODEL_SCALE = 0.6; // het Blender-model verkleind voor de wei
 const MEADOW_RADIUS = 36; // straal van de wei (m)
-const FLOWER_SPACING = 0.9; // gemiddelde afstand tussen bloemen (m)
+const FLOWER_SPACING = 1.3; // gemiddelde afstand tussen bloemen (m)
 const EDGE_FADE = 8; // laatste meters naar de rand: steeds ijler, geen harde grens
-const STEM_HEIGHT = 2.4;
-const HEAD_RADIUS = 0.35;
+const SCALE_MIN = 0.8; // bloemen verschillen ±20% in grootte
+const SCALE_MAX = 1.2;
+
+// LOD: volledige pluisjes alleen op de dichtste bollen in beeld, verderop een eenvoudige bol
+// Gemeten op retina: de parachuutjes zijn het duurste deel (±200 driehoeken per pluisje)
+const NEAR_HEADS = 48; // aantal bollen met echte pluisjes
+const SEEDS_PER_HEAD = 72; // pluisjes per bol
+const SEED_LOWEST = -0.55; // geen pluisjes onderaan de bol, waar de steel zit (y van de richting)
+const LOD_INTERVAL = 0.1; // seconden tussen het opnieuw kiezen van de dichtste bollen
+const FAR_PUFF_SIZE = 0.92; // grootte van de verre bol t.o.v. een volle pluizenbol
+
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // ±137,5°: zoals de pitten van een zonnebloem
 
 /**
- * PLACEHOLDER-wei: simpele bloemen (cilinder + bol) als één InstancedMesh.
- * Later: steel, pluizenbol, bladrozet en gele bloem uit Blender (GLB),
- * pluisjes via gulden-hoekverdeling, steel-buigen als morph target.
+ * De wei met het Blender-model (blender/puffball.blend → public/models/puffball.glb).
+ *
+ * Vijf InstancedMeshes (elk één draw call):
+ * - stelen (alle bloemen), buigen met wind + veer-physics
+ * - verre bollen (alle bloemen behalve de dichtste): een eenvoudige witte bol
+ * - receptacle, pappus en achene (alleen de NEAR_HEADS dichtste bollen):
+ *   SEEDS_PER_HEAD pluisjes per bol, verdeeld volgens de gulden hoek
+ *
+ * Alle onderdelen worden in de vertex-shader op de top van de gebogen steel gezet,
+ * met dezelfde wind en dezelfde physics-buffer (offsetBuffer), dus ze buigen samen.
  */
-export function createMeadow() {
-  const positions = scatterFlowers();
-  const flowers = positions.map((position) => ({
-    position, // voet van de bloem
-    scale: 0.8 + Math.random() * 0.4,
-  }));
+export class Meadow {
+  static async create() {
+    const meadow = new Meadow();
+    meadow.model = await loadPuffballModel(MODEL_SCALE);
+    meadow.build();
+    return meadow;
+  }
 
-  // Uitwijking per bloem door de physics (x/z in wereld-units, aan de top van de steel).
-  // FlowerPhysics schrijft hierin, de shader leest het.
-  const pushAttribute = new THREE.InstancedBufferAttribute(new Float32Array(flowers.length * 2), 2);
-  pushAttribute.setUsage(THREE.DynamicDrawUsage);
+  build() {
+    const model = this.model;
+    this.group = new THREE.Group();
+    this.stemHeight = model.stemHeight;
+    // Volle pluizenbol (bol + pluisjes): voor de aanraking door muis en hand
+    this.headRadius = model.receptacleRadius + model.seedLength;
 
-  const geometry = createPlaceholderFlowerGeometry();
-  const material = createFlowerMaterial(pushAttribute);
+    // Bloemen plaatsen, elk met een eigen grootte en draaiing
+    this.flowers = scatterFlowers().map((position) => {
+      const scale = SCALE_MIN + Math.random() * (SCALE_MAX - SCALE_MIN);
+      const rotation = Math.random() * Math.PI * 2;
+      // Midden van de bol t.o.v. de voet: uit Blender, gedraaid en geschaald zoals deze bloem
+      const headOffset = model.headCenter.clone().applyAxisAngle(THREE.Object3D.DEFAULT_UP, rotation).multiplyScalar(scale);
+      return { position, scale, rotation, headOffset };
+    });
+    const count = this.flowers.length;
 
-  const mesh = new THREE.InstancedMesh(geometry, material, flowers.length);
-  mesh.castShadow = true;
-  // Bounding sphere van één bloem klopt niet voor de hele wei: niet wegknippen
-  mesh.frustumCulled = false;
+    this.createBuffers();
+    this.createStems();
+    this.createFarPuffs();
+    this.createNearHeads();
 
-  const matrix = new THREE.Matrix4();
-  const scale = new THREE.Vector3();
-  flowers.forEach((flower, i) => {
-    scale.setScalar(flower.scale);
-    // Enkel verplaatsen + schalen (geen rotatie), zodat lokale x/z = wereld-x/z voor de wind
-    matrix.compose(flower.position, new THREE.Quaternion(), scale);
-    mesh.setMatrixAt(i, matrix);
-  });
+    this.lodTimer = LOD_INTERVAL; // meteen bij de eerste update kiezen
+    this.projection = new THREE.Matrix4();
+    this.frustum = new THREE.Frustum();
+    this.sphere = new THREE.Sphere();
+    this.order = Array.from({ length: count }, (_, i) => i);
+    this.distances = new Float32Array(count);
+  }
 
-  return { mesh, flowers, pushAttribute, stemHeight: STEM_HEIGHT, headRadius: HEAD_RADIUS };
+  // --- GPU-buffers, gedeeld door alle onderdelen en de physics ---
+
+  createBuffers() {
+    const count = this.flowers.length;
+    const flowerData = new Float32Array(count * 4); // voet x, y, z + grootte
+    const headData = new Float32Array(count * 4); // midden van de bol t.o.v. de voet (x, y, z)
+    this.flowers.forEach((flower, i) => {
+      flowerData.set([flower.position.x, flower.position.y, flower.position.z, flower.scale], i * 4);
+      headData.set([flower.headOffset.x, flower.headOffset.y, flower.headOffset.z, 0], i * 4);
+    });
+    this.flowerBuffer = instancedArray(flowerData, 'vec4');
+    this.headBuffer = instancedArray(headData, 'vec4');
+
+    // Uitwijking per bloem (x/z aan de top): de compute shader van FlowerPhysics schrijft erin
+    this.offsetBuffer = instancedArray(count, 'vec2');
+
+    // LOD: welke bloemen hebben nu echte pluisjes? (door JavaScript bijgewerkt, 10× per seconde)
+    this.nearSlots = instancedArray(new Float32Array(NEAR_HEADS).fill(-1), 'float'); // bloemnummer per plek
+    this.nearFlags = instancedArray(count, 'float'); // 1 = deze bloem is dichtbij (verre bol verbergen)
+
+    // Pluisjes op de bol: richting + draaiing per pluisje, voor alle bollen dezelfde
+    const directions = new Float32Array(SEEDS_PER_HEAD * 4);
+    const rotations = new Float32Array(SEEDS_PER_HEAD * 4);
+    const up = new THREE.Vector3(0, 1, 0);
+    const direction = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    const twist = new THREE.Quaternion();
+    for (let k = 0; k < SEEDS_PER_HEAD; k++) {
+      // Fibonacci-spiraal: gelijkmatig over de bol, van boven tot net boven de steel
+      const y = 1 - ((k + 0.5) / SEEDS_PER_HEAD) * (1 - SEED_LOWEST);
+      const ring = Math.sqrt(1 - y * y);
+      const angle = k * GOLDEN_ANGLE;
+      direction.set(Math.cos(angle) * ring, y, Math.sin(angle) * ring);
+      // Pluisje (wijst omhoog) naar buiten draaien, plus een willekeurige draai om zijn eigen as
+      twist.setFromAxisAngle(up, Math.random() * Math.PI * 2);
+      quaternion.setFromUnitVectors(up, direction).multiply(twist);
+      directions.set([direction.x, direction.y, direction.z, 0], k * 4);
+      rotations.set([quaternion.x, quaternion.y, quaternion.z, quaternion.w], k * 4);
+    }
+    this.seedDirections = instancedArray(directions, 'vec4');
+    this.seedRotations = instancedArray(rotations, 'vec4');
+  }
+
+  /** Verplaatsing van de top van bloem i: wind + veer-physics, en een beetje zakken bij buigen */
+  topDisplacement(i) {
+    const flower = this.flowerBuffer.element(i);
+    const offset = windAt(flower.xz).mul(1.2).add(this.offsetBuffer.element(i));
+    // Een gebogen steel wordt niet langer: de top zakt (≈ uitwijking² / 2·lengte)
+    const drop = dot(offset, offset).div(flower.w.mul(this.stemHeight).mul(2));
+    return vec3(offset.x, drop.negate(), offset.y);
+  }
+
+  /** Midden van de bol van bloem i, op de top van de gebogen steel */
+  headPosition(i) {
+    return this.flowerBuffer.element(i).xyz.add(this.headBuffer.element(i).xyz).add(this.topDisplacement(i));
+  }
+
+  // --- Stelen ---
+
+  createStems() {
+    const material = this.model.materials.stem;
+    // positionGeometry.y = hoogte in de steel zelf: voet staat vast, top buigt het meest
+    const bend = positionGeometry.y.div(this.stemHeight).clamp(0, 1).pow(2);
+    material.positionNode = positionLocal.add(this.topDisplacement(instanceIndex).mul(bend));
+
+    const mesh = new THREE.InstancedMesh(this.model.stemGeometry, material, this.flowers.length);
+    const matrix = new THREE.Matrix4();
+    const quaternion = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    this.flowers.forEach((flower, i) => {
+      quaternion.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, flower.rotation);
+      matrix.compose(flower.position, quaternion, scale.setScalar(flower.scale));
+      mesh.setMatrixAt(i, matrix);
+    });
+    this.addMesh(mesh);
+  }
+
+  // --- Verre bollen (LOD) ---
+
+  /**
+   * Verre bollen als billboard: een plat vierkantje dat altijd naar de camera kijkt,
+   * met een getekende pluizenbol (kern, straaltjes, parachuutjes). 2 driehoeken per bloem.
+   */
+  createFarPuffs() {
+    const radius = (this.model.receptacleRadius + this.model.seedLength) * FAR_PUFF_SIZE;
+    const material = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false });
+
+    // Rechts en omhoog van de camera (elke frame bijgewerkt in update)
+    this.cameraRight = uniform(new THREE.Vector3(1, 0, 0));
+    this.cameraUp = uniform(new THREE.Vector3(0, 1, 0));
+
+    material.positionNode = Fn(() => {
+      const i = instanceIndex;
+      const flower = this.flowerBuffer.element(i);
+      // Dichtbij: verbergen (samendrukken tot een punt), daar staan de echte pluisjes
+      const size = float(radius).mul(flower.w).mul(float(1).sub(this.nearFlags.element(i)));
+      const corner = this.cameraRight.mul(positionGeometry.x).add(this.cameraUp.mul(positionGeometry.y));
+      return this.headPosition(i).add(corner.mul(size));
+    })();
+
+    // De pluizenbol tekenen: p = plek op het vierkantje (-1..1), r = afstand tot het midden
+    const p = uv().mul(2).sub(1);
+    const r = length(p);
+    const spin = this.flowerBuffer.element(instanceIndex).x.mul(12.9898); // elke bloem anders gedraaid
+    const angle = atan(p.y, p.x).add(spin).div(Math.PI * 2);
+
+    const core = smoothstep(0.17, 0.1, r); // bruine kern
+    const rays = float(1).sub(smoothstep(0, 0.35, abs(fract(angle.mul(40)).sub(0.5)).mul(2))) // straaltjes
+      .mul(smoothstep(0.95, 0.3, r));
+    const fans = smoothstep(0.45, 0.85, r).mul(smoothstep(1, 0.85, r)) // parachuutjes aan de buitenkant
+      .mul(fract(angle.mul(173)).mul(0.5).add(0.5));
+    const haze = smoothstep(1, 0, r).mul(0.25); // donzige vulling: je kijkt door veel pluisjes
+    const alpha = max(max(core, rays.mul(0.4)), max(fans.mul(0.45), haze));
+
+    // Kleur: zoals de echte pluisjes (applyPuffColor), met de kern in de kleur van de receptacle
+    const day = mix(color('#b9c4ff'), color(this.model.materials.pappus.color), uTimeOfDay);
+    const light = mix(float(0.35), float(0.8), uTimeOfDay); // onbelicht materiaal: zelf dimmen 's nachts
+    const glow = color('#7df9ff').mul(uTimeOfDay.oneMinus()).mul(0.6);
+    const puff = day.mul(light).add(glow);
+    // Kern: 's nachts veel donkerder (licht²), zoals de echte receptacle
+    material.colorNode = mix(puff, color(this.model.materials.receptacle.color).mul(light.mul(light)), core);
+    material.opacityNode = alpha;
+
+    this.addMesh(new THREE.InstancedMesh(new THREE.PlaneGeometry(2, 2), material, this.flowers.length));
+  }
+
+  // --- Dichtbij: bol + echte pluisjes ---
+
+  createNearHeads() {
+    const { receptacle, pappus, achene } = this.model.materials;
+
+    // Receptacle: één per plek
+    receptacle.positionNode = Fn(() => {
+      const slot = this.nearSlots.element(instanceIndex);
+      const i = int(slot.max(0));
+      const flower = this.flowerBuffer.element(i);
+      const position = this.headPosition(i).add(positionGeometry.mul(flower.w));
+      return select(slot.greaterThanEqual(0), position, vec3(0)); // lege plek: onzichtbaar
+    })();
+    this.addMesh(new THREE.InstancedMesh(this.model.receptacleGeometry, receptacle, NEAR_HEADS));
+
+    // Pluisjes: SEEDS_PER_HEAD per plek
+    const seedPosition = Fn(() => {
+      const slot = this.nearSlots.element(instanceIndex.div(SEEDS_PER_HEAD));
+      const k = instanceIndex.mod(SEEDS_PER_HEAD);
+      const i = int(slot.max(0));
+      const flower = this.flowerBuffer.element(i);
+      const q = this.seedRotations.element(k);
+      const direction = this.seedDirections.element(k).xyz;
+
+      // Pluisje naar buiten draaien (ook de normalen, voor de belichting)
+      normalLocal.assign(rotate(normalGeometry, q));
+      const rotated = rotate(positionGeometry, q).mul(flower.w);
+      // Op het oppervlak van de bol, op de top van de gebogen steel
+      const attach = direction.mul(this.model.receptacleRadius).mul(flower.w);
+      const position = this.headPosition(i).add(attach).add(rotated);
+      return select(slot.greaterThanEqual(0), position, vec3(0));
+    });
+
+    pappus.positionNode = seedPosition();
+    this.applyPuffColor(pappus, pappus.color);
+    this.addMesh(new THREE.InstancedMesh(this.model.pappusGeometry, pappus, NEAR_HEADS * SEEDS_PER_HEAD));
+
+    if (achene && this.model.acheneGeometry) {
+      achene.positionNode = seedPosition();
+      this.addMesh(new THREE.InstancedMesh(this.model.acheneGeometry, achene, NEAR_HEADS * SEEDS_PER_HEAD));
+    }
+  }
+
+  /** Pluizenkleur: wit overdag, 's nachts blauwig met een zachte neon-gloed */
+  applyPuffColor(material, dayColor) {
+    material.colorNode = mix(color('#b9c4ff'), color(dayColor), uTimeOfDay);
+    material.emissiveNode = color('#7df9ff').mul(uTimeOfDay.oneMinus()).mul(0.6);
+  }
+
+  addMesh(mesh) {
+    // De buffers bepalen waar alles staat, niet de bounding box van één bloem: niet wegknippen
+    mesh.frustumCulled = false;
+    this.group.add(mesh);
+  }
+
+  // --- LOD: de dichtste bollen in beeld krijgen echte pluisjes ---
+
+  update(delta, camera) {
+    // Billboards van de verre bollen naar de camera draaien
+    this.cameraRight.value.setFromMatrixColumn(camera.matrixWorld, 0);
+    this.cameraUp.value.setFromMatrixColumn(camera.matrixWorld, 1);
+
+    this.lodTimer += delta;
+    if (this.lodTimer < LOD_INTERVAL) return;
+    this.lodTimer = 0;
+
+    this.projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    this.frustum.setFromProjectionMatrix(this.projection);
+    this.sphere.radius = this.headRadius * SCALE_MAX;
+
+    // Afstand tot de camera; bollen buiten beeld achteraan
+    this.flowers.forEach((flower, i) => {
+      this.sphere.center.copy(flower.position).add(flower.headOffset);
+      const inView = this.frustum.intersectsSphere(this.sphere);
+      this.distances[i] = this.sphere.center.distanceToSquared(camera.position) + (inView ? 0 : 1e9);
+    });
+    this.order.sort((a, b) => this.distances[a] - this.distances[b]);
+
+    const slots = this.nearSlots.value.array;
+    const flags = this.nearFlags.value.array;
+    flags.fill(0);
+    for (let s = 0; s < NEAR_HEADS; s++) {
+      const i = this.order[s];
+      const usable = i !== undefined && this.distances[i] < 1e9;
+      slots[s] = usable ? i : -1;
+      if (usable) flags[i] = 1;
+    }
+    this.nearSlots.value.needsUpdate = true;
+    this.nearFlags.value.needsUpdate = true;
+  }
 }
 
-function createPlaceholderFlowerGeometry() {
-  // Weinig hoekjes: er staan duizenden van deze bloemen
-  const stem = new THREE.CylinderGeometry(0.03, 0.045, STEM_HEIGHT, 5, 8);
-  stem.translate(0, STEM_HEIGHT / 2, 0);
-
-  const head = new THREE.SphereGeometry(HEAD_RADIUS, 14, 10);
-  head.translate(0, STEM_HEIGHT, 0);
-
-  return mergeGeometries([stem, head]);
-}
-
-function createFlowerMaterial(pushAttribute) {
-  const material = new THREE.MeshStandardNodeMaterial({ roughness: 0.8 });
-
-  // positionGeometry = originele vertexpositie (vóór instancing), dus hoogte in de bloem zelf
-  const heightInFlower = positionGeometry.y;
-  const isHead = smoothstep(STEM_HEIGHT - HEAD_RADIUS - 0.05, STEM_HEIGHT - HEAD_RADIUS + 0.05, heightInFlower);
-
-  // Buigen: voet staat vast, top buigt het meest (kwadratisch)
-  const bend = heightInFlower.div(STEM_HEIGHT).clamp(0, 1).pow(2);
-
-  // Totale uitwijking aan de top = wind (golven over de wei) + physics (cursor, veer)
-  const wind = windAt(positionLocal.xz).mul(1.2);
-  const push = instancedDynamicBufferAttribute(pushAttribute, 'vec2');
-  const offset = wind.add(push);
-
-  // Een gebogen steel wordt niet langer: de top zakt een beetje (≈ uitwijking² / 2·lengte)
-  const drop = dot(offset, offset).div(2 * STEM_HEIGHT);
-  material.positionNode = positionLocal.add(vec3(offset.x, drop.negate(), offset.y).mul(bend));
-
-  // Kleuren: groene steel, witte bol; 's nachts een zachte neon-gloed op de bol
-  const stemColor = mix(color('#2f5a4a'), color('#5e8a3a'), uTimeOfDay);
-  const headColor = mix(color('#b9c4ff'), color('#f4f1ea'), uTimeOfDay);
-  material.colorNode = mix(stemColor, headColor, isHead);
-  material.emissiveNode = color('#7df9ff').mul(isHead).mul(uTimeOfDay.oneMinus()).mul(0.6);
-
-  return material;
+/** Vector v draaien met quaternion q (x, y, z, w) */
+function rotate(v, q) {
+  return v.add(cross(q.xyz, cross(q.xyz, v).add(v.mul(q.w))).mul(2));
 }
 
 /**
