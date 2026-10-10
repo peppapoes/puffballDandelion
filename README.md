@@ -16,6 +16,8 @@ Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in p
 | Slepen / scrollen | Rond de wei draaien en zoomen (begrensd) |
 | Klik op een bloem | De camera zoomt vloeiend in op die pluizenbol; de bloem beweegt nog maar zachtjes, de rest van de wei waait door. Ingezoomd: slepen = rond de bloem draaien, scrollen = dichterbij of verder |
 | Escape of klik naast de bloem | Vloeiend terug naar je plek in de wei |
+| Ingezoomd: wrijf met muis of hand over de bol | Hoe sneller je wrijft, hoe meer pluisjes loskomen; ze openen hun parachuutje en dwarrelen traag weg met de wind. De bol wordt kaler en blijft kaal, ook als je uitzoomt |
+| 🎤 Microfoon aan (knop rechtsonder), ingezoomd blazen | Hoe harder je blaast, hoe meer pluisjes wegvliegen, eerst aan jouw kant van de bol |
 | `?debug` achter de URL | Prestatiepaneel; in de console meet `await app.benchmark()` de echte kost per frame |
 
 ## Techniek
@@ -28,6 +30,7 @@ Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in p
   - lichtmeter op de GPU met **compute shaders in TSL**: de gemiddelde helderheid van het camerabeeld stuurt dag en nacht
 - De lucht rekent het dure deel (atmosfeer, wolken) op 1/16 van de pixels in een render target; sterren en horizon op volle resolutie
 - Veer-physics van de stelen als compute shader op de GPU (`src/world/FlowerPhysics.js`)
+- Pluisjes wegwrijven of wegblazen (`src/world/Seeds.js`): twee compute shaders. De eerste geeft elk pluisje van de gekozen bloem een kans om los te komen (wrijfsnelheid van muis/hand, blaaskracht van de microfoon via de Web Audio API in `src/interaction/Microphone.js`). De tweede is de physics van de vliegende pluisjes: meedrijven met dezelfde wind als de wei, traag dalen met luchtweerstand (parachute), fladderen, op de grond blijven liggen. Een los pluisje draait rechtop en zijn pluis waaiert open. Tot 64 kale bloemen worden onthouden (welke pluisjes los zijn); van ver wordt de foto van een kale bol doorzichtiger
 - Inzoomen op één bloem met scherptediepte (post-processing met `RenderPipeline`, `src/core/postprocessing.js`): de scène gaat met kleur en diepte naar een textuur, daarna wordt per pixel gemengd tussen scherp en een wazige versie (gaussian blur op halve resolutie), volgens de afstand tot de gekozen bol; plus een zacht vignet. Alleen actief als je ingezoomd bent
 - Tweede Shadertoy-shader: 300 vuurvliegjes als billboards (één draw call) met het knipperritme en de gloed van "Fireflies at Dusk" (`src/world/Fireflies.js`)
 - Physics voor de vuurvliegjes als tweede compute shader: passeer je er een met de muis of de hand, dan vliegt het zacht omhoog en een beetje opzij, en daalt het langzaam terug (kritisch gedempte veer, dus zonder te stuiteren)

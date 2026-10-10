@@ -2,6 +2,7 @@ import * as THREE from 'three/webgpu';
 import {
   Fn, color, mix, vec2, vec3, float, cross, select, fract, uniform, uv, texture, attribute, length,
   positionLocal, positionGeometry, normalGeometry, normalLocal, instancedArray, instanceIndex, int,
+  If, Loop, varyingProperty,
 } from 'three/tsl';
 import { uTimeOfDay } from '../state/worldState.js';
 import { windAt } from './wind.js';
@@ -18,7 +19,8 @@ const SCALE_MAX = 1.2;
 // LOD: volledige pluisjes alleen op de dichtste bollen in beeld, verderop een eenvoudige bol
 // puffballSimple: een pluisje is maar 16 driehoeken, dus veel bollen kunnen echte pluisjes krijgen
 const NEAR_HEADS = 160; // aantal bollen met echte pluisjes
-const SEEDS_PER_HEAD = 90; // pluisjes per bol
+export const SEEDS_PER_HEAD = 90; // pluisjes per bol
+export const PLUCK_SLOTS = 64; // zoveel (deels) kale bloemen worden onthouden
 const SEED_LOWEST = -0.55; // geen pluisjes onderaan de bol, waar de steel zit (y van de richting)
 const LOD_INTERVAL = 0.1; // seconden tussen het opnieuw kiezen van de dichtste bollen
 const IMPOSTOR_SIZE = 512; // resolutie van de gebakken foto van een pluizenbol (verre bollen)
@@ -123,6 +125,15 @@ export class Meadow {
     }
     this.seedDirections = instancedArray(directions, 'vec4');
     this.seedRotations = instancedArray(rotations, 'vec4');
+
+    // Kale bloemen onthouden (Seeds.js): PLUCK_SLOTS plekken van SEEDS_PER_HEAD pluisjes.
+    // Per pluisje: x = 1 vast, 0 losgekomen; y = (niet gebruikt);
+    // z = hoeveelste keer losgekomen (welke vliegplek), w = van welke bloem deze plek is
+    const state = new Float32Array(PLUCK_SLOTS * SEEDS_PER_HEAD * 4);
+    for (let n = 0; n < PLUCK_SLOTS * SEEDS_PER_HEAD; n++) state.set([1, 0, 0, -1], n * 4);
+    this.seedState = instancedArray(state, 'vec4');
+    // Per bloem: welke plek (-1 = nooit aangeraakt, dus vol). JavaScript (Seeds.js) wijst de plekken toe.
+    this.pluckedSlot = instancedArray(new Float32Array(this.flowers.length).fill(-1), 'float');
   }
 
   /**
@@ -150,6 +161,15 @@ export class Meadow {
     const { amount, direction } = this.bendOf(i);
     const top = vec3(this.model.bendTop.x, this.model.bendTop.y, this.model.bendTop.z);
     return turnTowards(top, direction).mul(amount).mul(this.flowerBuffer.element(i).w);
+  }
+
+  /** Zit pluisje k van bloem i nog vast? 1 = ja (ook voor bloemen die nooit aangeraakt zijn), 0 = los */
+  seedAttached(i, k) {
+    const slot = this.pluckedSlot.element(i);
+    const state = this.seedState.element(int(slot.max(0)).mul(SEEDS_PER_HEAD).add(int(k)));
+    // De plek moet echt van deze bloem zijn (w), anders is ze net aan een andere bloem gegeven
+    const own = slot.greaterThanEqual(0).and(state.w.equal(float(i)));
+    return select(own, state.x, float(1));
   }
 
   /** Midden van de bol van bloem i, op de top van de gebogen steel */
@@ -247,9 +267,22 @@ export class Meadow {
     this.cameraRight = uniform(new THREE.Vector3(1, 0, 0));
     this.cameraUp = uniform(new THREE.Vector3(0, 1, 0));
 
+    // Hoeveel pluisjes heeft deze bol nog (0..1)? Berekend in de vertex-shader, gebruikt voor de doorzichtigheid
+    const fullness = varyingProperty('float', 'vPuffFullness');
+
     material.positionNode = Fn(() => {
       const i = instanceIndex;
       const flower = this.flowerBuffer.element(i);
+
+      // Alleen voor aangeraakte bloemen tellen (de andere 4000 zijn vol en kosten zo niets extra)
+      fullness.assign(1);
+      If(this.pluckedSlot.element(i).greaterThanEqual(0), () => {
+        const attached = float(0).toVar();
+        Loop(SEEDS_PER_HEAD, ({ i: k }) => {
+          attached.addAssign(this.seedAttached(i, k));
+        });
+        fullness.assign(attached.div(SEEDS_PER_HEAD));
+      });
       // Dichtbij: verbergen (samendrukken tot een punt), daar staan de echte pluisjes
       const size = float(radius).mul(flower.w).mul(float(1).sub(this.nearFlags.element(i)));
       const corner = this.cameraRight.mul(positionGeometry.x).add(this.cameraUp.mul(positionGeometry.y));
@@ -267,7 +300,7 @@ export class Meadow {
     const light = mix(float(0.35), float(0.85), uTimeOfDay);
     const glow = color('#7df9ff').mul(uTimeOfDay.oneMinus()).mul(0.6);
     material.colorNode = photo.rgb.mul(tint).mul(light).add(glow);
-    material.opacityNode = photo.a;
+    material.opacityNode = photo.a.mul(fullness); // kale bol: ijler, tot alleen de bol overblijft
 
     this.addMesh(new THREE.InstancedMesh(new THREE.PlaneGeometry(2, 2), material, this.flowers.length));
   }
@@ -296,9 +329,12 @@ export class Meadow {
       const q = this.seedRotations.element(k);
       const direction = this.seedDirections.element(k).xyz;
 
+      // Losgekomen pluisjes (0) zijn weg van de bol, ook na het uitzoomen (Seeds.js)
+      const grown = this.seedAttached(i, k);
+
       // Pluisje naar buiten draaien (ook de normalen, voor de belichting)
       normalLocal.assign(rotate(normalGeometry, q));
-      const rotated = rotate(positionGeometry, q).mul(flower.w);
+      const rotated = rotate(positionGeometry, q).mul(flower.w).mul(grown);
       // Op het oppervlak van de bol, op de top van de gebogen steel
       const attach = direction.mul(this.model.receptacleRadius).mul(flower.w);
       const position = this.headPosition(i).add(attach).add(rotated);
@@ -374,7 +410,7 @@ function turnTowards(v, direction) {
 }
 
 /** Vector v draaien met quaternion q (x, y, z, w) */
-function rotate(v, q) {
+export function rotate(v, q) {
   return v.add(cross(q.xyz, cross(q.xyz, v).add(v.mul(q.w))).mul(2));
 }
 

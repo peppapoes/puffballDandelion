@@ -15,6 +15,8 @@ import { Pointer, attachMouse } from './interaction/Pointer.js';
 import { CameraVision } from './interaction/CameraVision.js';
 import { FlowerFocus } from './interaction/FlowerFocus.js';
 import { FocusPostProcessing } from './core/postprocessing.js';
+import { Microphone } from './interaction/Microphone.js';
+import { Seeds } from './world/Seeds.js';
 
 const DAY_SUN = new THREE.Color('#fff4e0');
 const NIGHT_SUN = new THREE.Color('#9fb4ff');
@@ -71,6 +73,11 @@ export class App {
     this.fireflies = new Fireflies(this.renderer, this.flowerPhysics.pointerUniforms);
     this.scene.add(this.fireflies.mesh);
 
+    // Ingezoomd: pluisjes wegwrijven (muis, hand) of wegblazen (microfoon); ze dwarrelen weg
+    this.microphone = new Microphone();
+    this.seeds = new Seeds(this.renderer, this.meadow, this.flowerPhysics.pointerUniforms);
+    this.scene.add(this.seeds.group);
+
     initWorldStateInput();
     window.addEventListener('resize', () => this.onResize());
     this.renderer.setAnimationLoop((timestamp) => this.update(timestamp));
@@ -80,6 +87,7 @@ export class App {
   start() {
     // TODO: audio starten (ambient muziek + windgeruis)
     this.cameraVision.show();
+    this.microphone.show();
   }
 
   createLights() {
@@ -128,6 +136,10 @@ export class App {
     this.flowerPhysics.update(delta, this.pointers);
     this.meadow.update(delta, this.camera); // LOD: dichtste bollen krijgen echte pluisjes
     this.fireflies.update(delta, this.camera); // physics: opschrikken en terugdalen
+    this.microphone.update(delta);
+    // Pluisjes loskrijgen alleen als je ingezoomd bent (en de camera aangekomen is)
+    const focused = this.flowerFocus.flight ? null : this.flowerFocus.focused;
+    this.seeds.update(delta, this.camera, focused, this.microphone.level);
     perf.end('physics');
 
     perf.begin('render');

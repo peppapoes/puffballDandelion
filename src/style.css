@@ -67,7 +67,7 @@ body {
   font-size: 0.9rem;
 }
 
-/* --- Webcam (beweging + licht) --- */
+/* --- Webcam (beweging + licht) en microfoon (blazen) --- */
 
 #camera-controls {
   position: fixed;
@@ -92,7 +92,8 @@ body {
   background: rgba(0, 0, 0, 0.45);
 }
 
-#camera-button {
+#camera-button,
+#mic-button {
   font: inherit;
   padding: 8px 16px;
   border-radius: 999px;
@@ -102,11 +103,13 @@ body {
   cursor: pointer;
 }
 
-#camera-button:hover {
+#camera-button:hover,
+#mic-button:hover {
   background: rgba(0, 0, 0, 0.55);
 }
 
-#camera-button:disabled {
+#camera-button:disabled,
+#mic-button:disabled {
   opacity: 0.6;
   cursor: wait;
 }
