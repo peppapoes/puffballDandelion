@@ -23,6 +23,8 @@ const SEED_LOWEST = -0.55; // geen pluisjes onderaan de bol, waar de steel zit (
 const LOD_INTERVAL = 0.1; // seconden tussen het opnieuw kiezen van de dichtste bollen
 const IMPOSTOR_SIZE = 512; // resolutie van de gebakken foto van een pluizenbol (verre bollen)
 
+const FOCUS_CALM = 0.15; // ingezoomde bloem: nog 15% van de wind en physics
+
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // ±137,5°: zoals de pitten van een zonnebloem
 
 /**
@@ -61,6 +63,10 @@ export class Meadow {
       return { position, scale, rotation, headOffset };
     });
     const count = this.flowers.length;
+
+    // Inzoomen (FlowerFocus): welke bloem (-1 = geen), en hoe sterk ze stil gehouden wordt (0..1, vloeiend)
+    this.uFocusIndex = uniform(-1);
+    this.uFocusHold = uniform(0);
 
     this.createBuffers();
     this.createStems();
@@ -126,7 +132,10 @@ export class Meadow {
    */
   bendOf(i) {
     const flower = this.flowerBuffer.element(i);
-    const push = windAt(flower.xz).mul(1.2).add(this.offsetBuffer.element(i));
+    // De bloem waarop ingezoomd is (FlowerFocus) beweegt nog maar zachtjes, "alsof je ze vasthoudt"
+    const isFocused = float(i).equal(this.uFocusIndex);
+    const calm = select(isFocused, mix(float(1), float(FOCUS_CALM), this.uFocusHold), float(1));
+    const push = windAt(flower.xz).mul(1.2).add(this.offsetBuffer.element(i)).mul(calm);
     const pushLength = length(push);
     // Hoe ver de top in Blender opzij gaat bij volle buiging, voor deze bloemgrootte
     const reach = flower.w.mul(this.model.bendTop.x);

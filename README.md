@@ -14,6 +14,8 @@ Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in p
 | Muis door de bloemen bewegen | De pluizenbollen worden meegeduwd en veren na |
 | 📷 Camera aan (knop rechtsonder) | Hou je hand voor de webcam en wrijf door de wei: je raakt een veel groter stuk aan dan met de muis. Het licht in je kamer stuurt dag en nacht (een pijltje neemt 20 s voorrang). Geen camera? De muis en de pijltjes blijven werken. |
 | Slepen / scrollen | Rond de wei draaien en zoomen (begrensd) |
+| Klik op een bloem | De camera zoomt vloeiend in op die pluizenbol; de bloem beweegt nog maar zachtjes, de rest van de wei waait door. Ingezoomd: slepen = rond de bloem draaien, scrollen = dichterbij of verder |
+| Escape of klik naast de bloem | Vloeiend terug naar je plek in de wei |
 | `?debug` achter de URL | Prestatiepaneel; in de console meet `await app.benchmark()` de echte kost per frame |
 
 ## Techniek
@@ -22,7 +24,7 @@ Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in p
 - Shaders in TSL (`three/tsl`)
 - [Vite](https://vite.dev/) als build-tool
 - Webcam als sensor (`src/interaction/CameraVision.js`):
-  - handtracking met [MediaPipe Hand Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker) in twee Web Workers (`handWorker.js`) die om beurten een camerabeeld verwerken, zodat de wei vlot blijft en er twee keer zoveel detecties per seconde zijn; herkent alleen handen, geen hoofd of andere beweging
+  - handtracking met [MediaPipe Hand Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker) in een Web Worker (`handWorker.js`), zodat de wei vlot blijft; tussen twee detecties voorspelt de app waar de hand nu is (uit haar snelheid), zodat de cirkel vlot meebeweegt; herkent alleen handen, geen hoofd of andere beweging
   - lichtmeter op de GPU met **compute shaders in TSL**: de gemiddelde helderheid van het camerabeeld stuurt dag en nacht
 - De lucht rekent het dure deel (atmosfeer, wolken) op 1/16 van de pixels in een render target; sterren en horizon op volle resolutie
 - Veer-physics van de stelen als compute shader op de GPU (`src/world/FlowerPhysics.js`)
@@ -51,7 +53,7 @@ src/
   core/                renderer, camera en prestatiemeter
   state/worldState.js  gedeelde wereldtoestand (uTimeOfDay, zon, horizon, wind, lichtmeter)
   world/               lucht, grond, wei (Blender-model + LOD), windveld, terreinhoogte, veer-physics, vuurvliegjes
-  interaction/         aanwijzers (muis, hand) en de webcam op de GPU (beweging + licht)
+  interaction/         aanwijzers (muis, hand), inzoomen op een bloem en de webcam op de GPU (beweging + licht)
 blender/               Blender-werkbestanden (.blend), niet online
 public/
   models/              Blender-exports (GLB): puffballSimple.glb

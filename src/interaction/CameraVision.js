@@ -20,13 +20,18 @@ const CELLS = GRID_W * GRID_H;
 const BRIGHTNESS_EVERY = 6; // niet elk camerabeeld meten: licht verandert traag
 
 // Hand
-// Eén detectie duurt ±80–160 ms, dus één worker haalt maar ±6–11 per seconde. Meerdere workers
-// werken om beurten een camerabeeld af (gemeten: 1 → 11/s, 2 → 22/s, 3 → 37/s). Elke worker
-// gebruikt een eigen processorkern en laadt het model apart (±15 MB geheugen extra per worker).
-const HAND_WORKERS = 2;
+// Eén detectie duurt ±80–160 ms, dus ±6–11 per seconde. Meer workers (om beurten een camerabeeld)
+// geven meer detecties, maar in de praktijk was dat glitchy: elke worker volgt de hand apart en ze
+// zijn het net niet eens (zigzag), en ze vechten met de wei om de processor. Daarom: één worker,
+// en tussen twee detecties voorspellen waar de hand nu is (PREDICT_MAX).
+const HAND_WORKERS = 1;
 const REACH = 1.2; // handbeweging uitvergroten: randen halen zonder je hand uit beeld te bewegen
 const FOLLOW_SPEED = 14; // afvlakken van het schokken (hoger = sneller, maar onrustiger)
-const LOST_AFTER = 300; // ms zonder hand: hand-aanwijzer laat los
+const LOST_AFTER = 500; // ms zonder hand: hand-aanwijzer laat los (ruim boven één trage detectie)
+// Voorspellen: een detectie toont de hand zoals ze was toen het camerabeeld genomen werd (±160 ms
+// geleden). Met de snelheid tussen de laatste detecties schuiven we ze door naar "nu".
+const PREDICT_MAX = 0.2; // nooit verder dan 0,2 s vooruit voorspellen (anders schiet ze door bij stoppen)
+const VELOCITY_SMOOTHING = 0.5; // nieuwe snelheid half meetellen: minder schokken door meetruis
 
 // Luma: hoe helder een kleur lijkt (groen weegt het zwaarst voor het oog)
 const LUMA = vec3(0.2126, 0.7152, 0.0722);
@@ -39,6 +44,8 @@ export class CameraVision {
     this.running = false;
 
     this.handTarget = { x: 0, y: 0 }; // laatst gevonden handpositie (NDC)
+    this.handVelocity = { x: 0, y: 0 }; // snelheid van de hand (NDC per seconde), voor het voorspellen
+    this.handTime = 0; // wanneer het camerabeeld van de laatste detectie genomen werd (ms)
     this.handSmoothed = { x: 0, y: 0 }; // afgevlakte positie (NDC)
     this.handLastSeen = 0;
     this.hasHand = false;
@@ -183,7 +190,7 @@ export class CameraVision {
       // Een worker met een ouder camerabeeld kan later klaar zijn: dat resultaat is al achterhaald
       if (data.timestamp < this.lastHandTimestamp) return;
       this.lastHandTimestamp = data.timestamp;
-      if (this.running && data.palm) this.onHand(data.palm);
+      if (this.running && data.palm) this.onHand(data.palm, data.timestamp);
     }
   }
 
@@ -203,19 +210,35 @@ export class CameraVision {
     this.sendingFrame = false;
   }
 
-  /** Hand gevonden: palm = midden van de handpalm (0..1 in het beeld, al gespiegeld) */
-  onHand(palm) {
+  /**
+   * Hand gevonden: palm = midden van de handpalm (0..1 in het beeld, al gespiegeld),
+   * timestamp = wanneer dat camerabeeld genomen werd (ms)
+   */
+  onHand(palm, timestamp) {
     // Beeld → NDC (-1..1, y omhoog), uitvergroot zodat je de randen haalt
     const x = Math.max(-1, Math.min(1, (palm.x * 2 - 1) * REACH));
     const y = Math.max(-1, Math.min(1, -(palm.y * 2 - 1) * REACH));
-    this.handTarget.x = x;
-    this.handTarget.y = y;
+
     if (!this.hasHand) {
       // Hand verschijnt: meteen op de juiste plek, niet van de vorige plek aan komen glijden
       this.handSmoothed.x = x;
       this.handSmoothed.y = y;
+      this.handVelocity.x = 0;
+      this.handVelocity.y = 0;
       this.hasHand = true;
+    } else {
+      // Snelheid = verplaatsing / tijd tussen de twee camerabeelden, afgevlakt tegen meetruis
+      const seconds = (timestamp - this.handTime) / 1000;
+      if (seconds > 0) {
+        const vx = (x - this.handTarget.x) / seconds;
+        const vy = (y - this.handTarget.y) / seconds;
+        this.handVelocity.x += (vx - this.handVelocity.x) * VELOCITY_SMOOTHING;
+        this.handVelocity.y += (vy - this.handVelocity.y) * VELOCITY_SMOOTHING;
+      }
     }
+    this.handTarget.x = x;
+    this.handTarget.y = y;
+    this.handTime = timestamp;
     this.handLastSeen = performance.now();
   }
 
@@ -242,14 +265,19 @@ export class CameraVision {
     });
   }
 
-  /** Vloeiend naar de handpositie, aanwijzer en cirkel bijwerken */
+  /** Vloeiend naar de (voorspelde) handpositie, aanwijzer en cirkel bijwerken */
   followHand(delta) {
     if (this.hasHand && performance.now() - this.handLastSeen > LOST_AFTER) this.loseHand();
     if (!this.hasHand) return;
 
+    // Voorspellen: waar is de hand nu, als ze zo verder beweegt sinds het laatste camerabeeld?
+    const ahead = Math.min((performance.now() - this.handTime) / 1000, PREDICT_MAX);
+    const goalX = Math.max(-1, Math.min(1, this.handTarget.x + this.handVelocity.x * ahead));
+    const goalY = Math.max(-1, Math.min(1, this.handTarget.y + this.handVelocity.y * ahead));
+
     const t = 1 - Math.exp(-FOLLOW_SPEED * delta);
-    this.handSmoothed.x += (this.handTarget.x - this.handSmoothed.x) * t;
-    this.handSmoothed.y += (this.handTarget.y - this.handSmoothed.y) * t;
+    this.handSmoothed.x += (goalX - this.handSmoothed.x) * t;
+    this.handSmoothed.y += (goalY - this.handSmoothed.y) * t;
     this.handPointer.moveTo(this.handSmoothed.x, this.handSmoothed.y);
 
     // NDC → pixels voor de cirkel op het scherm

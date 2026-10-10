@@ -13,6 +13,8 @@ import { FlowerPhysics } from './world/FlowerPhysics.js';
 import { Fireflies } from './world/Fireflies.js';
 import { Pointer, attachMouse } from './interaction/Pointer.js';
 import { CameraVision } from './interaction/CameraVision.js';
+import { FlowerFocus } from './interaction/FlowerFocus.js';
+import { FocusPostProcessing } from './core/postprocessing.js';
 
 const DAY_SUN = new THREE.Color('#fff4e0');
 const NIGHT_SUN = new THREE.Color('#9fb4ff');
@@ -48,6 +50,11 @@ export class App {
     this.scene.add(createGround());
     this.meadow = await Meadow.create(this.renderer); // laadt het Blender-model (public/models/puffballSimple.glb)
     this.scene.add(this.meadow.group);
+
+    // Klik op een bloem: vloeiend inzoomen; Escape of klik ernaast: terug naar de wei
+    this.flowerFocus = new FlowerFocus(this.camera, this.controls, canvas, this.meadow);
+    // Ingezoomd: scherptediepte (de rest van de wei wazig) + vignet
+    this.focusPost = new FocusPostProcessing(this.renderer, this.scene, this.camera);
 
     // Aanwijzers: muis (klein) en hand via de webcam (groot)
     this.mousePointer = new Pointer({ touchMargin: MOUSE_TOUCH_MARGIN });
@@ -107,8 +114,8 @@ export class App {
     if (this.cameraVision.brightness !== null) setDaylightFromRoom(this.cameraVision.brightness);
     updateWorldState(delta);
     this.updateLights();
-    this.controls.update();
-    keepCameraAboveGround(this.camera);
+    this.flowerFocus.update(delta); // camera: overgang afspelen, of gewoon de OrbitControls
+    keepCameraAboveGround(this.camera, this.flowerFocus.minHeight);
     perf.end('world');
 
     // Na de camera: webcam verwerken (GPU) en hand volgen, stralen bijwerken, bloemen laten reageren
@@ -137,7 +144,16 @@ export class App {
   renderFrame(target = null) {
     this.sky.render(this.renderer, this.camera);
     this.renderer.setRenderTarget(target);
-    this.renderer.render(this.scene, this.camera);
+
+    // Ingezoomd op een bloem: via de render-pipeline met scherptediepte; in de wei rechtstreeks (goedkoper)
+    const dof = this.flowerFocus.depthOfField;
+    if (dof) {
+      this.focusPost.set(dof.strength, dof.distance, dof.radius);
+      this.focusPost.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
+
     this.renderer.setRenderTarget(null);
   }
 
