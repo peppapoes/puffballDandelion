@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import {
-  Fn, color, mix, vec2, vec3, float, dot, cross, select, fract, uniform, uv, texture,
+  Fn, color, mix, vec2, vec3, float, cross, select, fract, uniform, uv, texture, attribute, length,
   positionLocal, positionGeometry, normalGeometry, normalLocal, instancedArray, instanceIndex, int,
 } from 'three/tsl';
 import { uTimeOfDay } from '../state/worldState.js';
@@ -48,7 +48,6 @@ export class Meadow {
   build(renderer) {
     const model = this.model;
     this.group = new THREE.Group();
-    this.stemHeight = model.stemHeight;
     // Volle pluizenbol (bol + pluisjes): voor de aanraking door muis en hand
     this.headRadius = model.receptacleRadius + model.seedLength;
     this.puffRadius = this.headRadius; // kader van de gebakken foto en grootte van de verre bollen
@@ -120,13 +119,28 @@ export class Meadow {
     this.seedRotations = instancedArray(rotations, 'vec4');
   }
 
-  /** Verplaatsing van de top van bloem i: wind + veer-physics, en een beetje zakken bij buigen */
-  topDisplacement(i) {
+  /**
+   * Buiging van bloem i, voor de shape key "Buigen" uit Blender:
+   * - amount: 0 = recht, 1 = volledig gebogen zoals in Blender
+   * - direction: richting (x, z) waarin wind + veer-physics de top duwen
+   */
+  bendOf(i) {
     const flower = this.flowerBuffer.element(i);
-    const offset = windAt(flower.xz).mul(1.2).add(this.offsetBuffer.element(i));
-    // Een gebogen steel wordt niet langer: de top zakt (≈ uitwijking² / 2·lengte)
-    const drop = dot(offset, offset).div(flower.w.mul(this.stemHeight).mul(2));
-    return vec3(offset.x, drop.negate(), offset.y);
+    const push = windAt(flower.xz).mul(1.2).add(this.offsetBuffer.element(i));
+    const pushLength = length(push);
+    // Hoe ver de top in Blender opzij gaat bij volle buiging, voor deze bloemgrootte
+    const reach = flower.w.mul(this.model.bendTop.x);
+    return {
+      amount: pushLength.div(reach).min(1),
+      direction: push.div(pushLength.max(1e-4)),
+    };
+  }
+
+  /** Verschuiving van de top van bloem i: de top van de Blender-buiging, gedraaid naar de duwrichting */
+  topDisplacement(i) {
+    const { amount, direction } = this.bendOf(i);
+    const top = vec3(this.model.bendTop.x, this.model.bendTop.y, this.model.bendTop.z);
+    return turnTowards(top, direction).mul(amount).mul(this.flowerBuffer.element(i).w);
   }
 
   /** Midden van de bol van bloem i, op de top van de gebogen steel */
@@ -138,9 +152,17 @@ export class Meadow {
 
   createStems() {
     const material = this.model.materials.stem;
-    // positionGeometry.y = hoogte in de steel zelf: voet staat vast, top buigt het meest
-    const bend = positionGeometry.y.div(this.stemHeight).clamp(0, 1).pow(2);
-    material.positionNode = positionLocal.add(this.topDisplacement(instanceIndex).mul(bend));
+    // Shape key "Buigen" uit Blender, per bloem gedraaid naar de richting waarin wind en physics duwen.
+    // Blender buigt naar +X; hier wordt +X de duwrichting, en de hoeveelheid volgt de physics.
+    material.positionNode = Fn(() => {
+      const { amount, direction } = this.bendOf(instanceIndex);
+      const scale = this.flowerBuffer.element(instanceIndex).w;
+      // Normalen mee laten buigen, voor het juiste licht op de gebogen steel
+      const bentNormal = turnTowards(attribute('bendNormal', 'vec3'), direction).mul(amount);
+      normalLocal.assign(normalLocal.add(bentNormal).normalize());
+      const bentPosition = turnTowards(attribute('bendPosition', 'vec3'), direction).mul(amount).mul(scale);
+      return positionLocal.add(bentPosition);
+    })();
 
     const mesh = new THREE.InstancedMesh(this.model.stemGeometry, material, this.flowers.length);
     const matrix = new THREE.Matrix4();
@@ -331,6 +353,15 @@ export class Meadow {
     this.nearSlots.value.needsUpdate = true;
     this.nearFlags.value.needsUpdate = true;
   }
+}
+
+/** Vector v (gebogen naar +X, zoals in Blender) om de verticale as draaien, zodat +X naar direction (x, z) wijst */
+function turnTowards(v, direction) {
+  return vec3(
+    v.x.mul(direction.x).sub(v.z.mul(direction.y)),
+    v.y,
+    v.x.mul(direction.y).add(v.z.mul(direction.x)),
+  );
 }
 
 /** Vector v draaien met quaternion q (x, y, z, w) */

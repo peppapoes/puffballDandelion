@@ -28,7 +28,10 @@ Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in p
 - Veer-physics van de stelen als compute shader op de GPU (`src/world/FlowerPhysics.js`)
 - Tweede Shadertoy-shader: 300 vuurvliegjes als billboards (één draw call) met het knipperritme en de gloed van "Fireflies at Dusk" (`src/world/Fireflies.js`)
 - Physics voor de vuurvliegjes als tweede compute shader: passeer je er een met de muis of de hand, dan vliegt het zacht omhoog en een beetje opzij, en daalt het langzaam terug (kritisch gedempte veer, dus zonder te stuiteren)
-- Eigen Blender-model (`blender/puffballSimple.blend` → `public/models/puffballSimple.glb`): steel, bol (receptacle) en pluisje. De pluisjes worden in code met de gulden hoek (Fibonacci-spiraal) over de bol verdeeld en met instancing getekend; LOD: echte pluisjes op de dichtste bollen, in de verte een billboard met een gebakken foto van een echte pluizenbol (impostor)
+- Eigen Blender-model (`blender/puffballSimple.blend` → `public/models/puffballSimple.glb`): steel, bol (receptacle) en pluisje.
+  - **Baking:** Ambient Occlusion gebakken in Blender (Cycles) voor de steel en de bol (`blender/textures/`), als occlusionTexture in de GLB en in de app als `aoMap`. Alleen AO, geen volledige lichtbake, want het licht verandert van dag naar nacht.
+  - **Shape key "Buigen" vanuit de code aangestuurd:** in Blender buigt de steel in een boog naar +X. De app leest die vorm in (`src/world/models.js`) en de vertex-shader draait hem per bloem naar de richting waarin wind en veer-physics duwen; de physics bepaalt ook hoe ver (0 = recht, 1 = volledig gebogen zoals in Blender) (`src/world/Meadow.js`).
+  - De pluisjes worden in code met de gulden hoek (Fibonacci-spiraal) over de bol verdeeld en met instancing getekend; LOD: echte pluisjes op de dichtste bollen, in de verte een billboard met een gebakken foto van een echte pluizenbol (impostor)
 
 ## Lokaal draaien
 

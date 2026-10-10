@@ -5,7 +5,8 @@ const MODEL_URL = './models/puffballSimple.glb'; // export van blender/puffballS
 
 /**
  * Laadt het Blender-model van de paardenbloem en zet de onderdelen klaar voor de wei:
- * - Stem: verschoven zodat de onderkant van de steel op (0, 0, 0) staat
+ * - Stem: verschoven zodat de onderkant van de steel op (0, 0, 0) staat, met de shape key
+ *   "Buigen" als eigen attributen (bendPosition, bendNormal) en gebakken AO (aoMap)
  * - Puffball: de bol (receptacle), midden op (0, 0, 0)
  * - Seed: het pluisje, gesplitst in pappus (parachuutje) en achene (zaadje);
  *   oorsprong onderaan het zaadje, wijst omhoog (+Y)
@@ -25,10 +26,11 @@ export async function loadPuffballModel(scale) {
 
   // Steel: voet = midden van de onderste ring punten (de oorsprong in Blender ligt in het midden)
   const stemGeometry = worldGeometry(stem);
+  // Shape key "Buigen" uit Blender (morph target): per punt de verschuiving bij volle buiging naar +X.
+  // Eerst eruit halen: anders telt computeBoundingBox de gebogen vorm mee en vindt hij de voet niet.
+  const bend = takeBendShapeKey(stemGeometry, stem);
   const base = lowestRingCenter(stemGeometry);
   stemGeometry.translate(-base.x, -base.y, -base.z);
-  stemGeometry.computeBoundingBox();
-  const stemHeight = stemGeometry.boundingBox.max.y;
 
   // Midden van de bol t.o.v. de voet, zoals in de Blender-scène
   const headCenter = head.getWorldPosition(new THREE.Vector3()).sub(base);
@@ -45,6 +47,9 @@ export async function loadPuffballModel(scale) {
   for (const geometry of [stemGeometry, receptacleGeometry, pappusGeometry, acheneGeometry]) {
     geometry?.scale(scale, scale, scale);
   }
+  // scale() verschaalt alleen de vaste attributen (position, normal), de buigvorm zelf doen
+  stemGeometry.attributes.bendPosition.applyMatrix4(new THREE.Matrix4().makeScale(scale, scale, scale));
+  bend.top.multiplyScalar(scale);
 
   return {
     stemGeometry,
@@ -57,7 +62,7 @@ export async function loadPuffballModel(scale) {
       pappus: toNodeMaterial(pappus.material),
       achene: achene ? toNodeMaterial(achene.material) : null,
     },
-    stemHeight: stemHeight * scale,
+    bendTop: bend.top, // verschuiving van de top bij volle buiging (x opzij, y omlaag)
     headCenter: headCenter.multiplyScalar(scale),
     receptacleRadius: receptacleRadius * scale,
     seedLength: seedLength * scale,
@@ -97,6 +102,28 @@ function lowestRingCenter(geometry) {
   return center.divideScalar(count);
 }
 
+/**
+ * Shape key "Buigen" (Blender) → eigen attributen bendPosition en bendNormal.
+ * Three.js zou de shape key anders zelf toepassen, voor alle bloemen in dezelfde richting (+X).
+ * Meadow.js draait de buiging per bloem naar de richting waarin wind en physics duwen.
+ */
+function takeBendShapeKey(geometry, mesh) {
+  const index = mesh.morphTargetDictionary?.Buigen; // naam → nummer, uit extras.targetNames van de glTF
+  const position = geometry.morphAttributes.position?.[index];
+  const normal = geometry.morphAttributes.normal?.[index];
+  if (!position || !normal) throw new Error(`Shape key "Buigen" niet gevonden op Stem in ${MODEL_URL}`);
+  // glTF bewaart een shape key als verschuiving t.o.v. de rechte steel (morphTargetsRelative)
+  geometry.setAttribute('bendPosition', position.clone());
+  geometry.setAttribute('bendNormal', normal.clone());
+  geometry.morphAttributes = {};
+
+  // Verschuiving van de top (hoogste punt): daar komt de bol op
+  const points = geometry.attributes.position;
+  let top = 0;
+  for (let i = 1; i < points.count; i++) if (points.getY(i) > points.getY(top)) top = i;
+  return { top: new THREE.Vector3().fromBufferAttribute(position, top) };
+}
+
 /** Blender-materiaal → node-materiaal (nodig om er TSL-shaders aan te hangen) */
 function toNodeMaterial(source) {
   const material = new THREE.MeshStandardNodeMaterial({
@@ -104,6 +131,7 @@ function toNodeMaterial(source) {
     roughness: source.roughness,
     metalness: source.metalness,
     map: source.map,
+    aoMap: source.aoMap, // gebakken Ambient Occlusion uit Blender (occlusionTexture in de glTF)
     side: source.side,
   });
   material.name = source.name;
