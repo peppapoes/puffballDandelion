@@ -17,8 +17,9 @@ const VIGNETTE = 0.35; // hoeveel donkerder de randen worden (0 = niets)
  * 1. één wazige versie van het hele beeld (gaussian blur, halve resolutie)
  * 2. per pixel mengen tussen scherp en wazig, volgens hoe ver die pixel van het
  *    scherpstelvlak ligt (circle of confusion, "CoC")
- * Bewust zelf gebouwd: het dof-effect van Three.js (DepthOfFieldNode) gaf mooiere bokeh,
- * maar kostte gemeten ±13 ms per frame, deze versie veel minder.
+ * Bewust zelf gebouwd: het dof-effect van Three.js (DepthOfFieldNode) geeft mooiere bokeh,
+ * maar doet zes render-stappen (gemeten met app.benchmark: +13 ms per frame, deze versie +8–10 ms).
+ * In de gewone render-loop kost deze versie ±3–5 ms (headless Chrome, 1280×800).
  * Alleen gebruikt als je ingezoomd bent (App.renderFrame).
  */
 export class FocusPostProcessing {

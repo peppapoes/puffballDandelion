@@ -28,6 +28,7 @@ Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in p
   - lichtmeter op de GPU met **compute shaders in TSL**: de gemiddelde helderheid van het camerabeeld stuurt dag en nacht
 - De lucht rekent het dure deel (atmosfeer, wolken) op 1/16 van de pixels in een render target; sterren en horizon op volle resolutie
 - Veer-physics van de stelen als compute shader op de GPU (`src/world/FlowerPhysics.js`)
+- Inzoomen op één bloem met scherptediepte (post-processing met `RenderPipeline`, `src/core/postprocessing.js`): de scène gaat met kleur en diepte naar een textuur, daarna wordt per pixel gemengd tussen scherp en een wazige versie (gaussian blur op halve resolutie), volgens de afstand tot de gekozen bol; plus een zacht vignet. Alleen actief als je ingezoomd bent
 - Tweede Shadertoy-shader: 300 vuurvliegjes als billboards (één draw call) met het knipperritme en de gloed van "Fireflies at Dusk" (`src/world/Fireflies.js`)
 - Physics voor de vuurvliegjes als tweede compute shader: passeer je er een met de muis of de hand, dan vliegt het zacht omhoog en een beetje opzij, en daalt het langzaam terug (kritisch gedempte veer, dus zonder te stuiteren)
 - Eigen Blender-model (`blender/puffballSimple.blend` → `public/models/puffballSimple.glb`): steel, bol (receptacle) en pluisje.
