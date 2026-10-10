@@ -23,6 +23,8 @@ export class PerfMonitor {
     this.enabled = DEBUG;
     this.averages = {}; // naam → gemiddelde ms
     this.starts = {};
+    this.counts = {}; // naam → aantal sinds de vorige verversing
+    this.rates = {}; // naam → aantal per seconde
     this.lastRefresh = 0;
 
     if (!this.enabled) return;
@@ -45,6 +47,11 @@ export class PerfMonitor {
     this.averages[name] = previous === undefined ? ms : previous + (ms - previous) * SMOOTHING;
   }
 
+  /** Iets dat niet elke frame gebeurt (bv. een handdetectie) tellen: het paneel toont het aantal per seconde */
+  count(name) {
+    if (this.enabled) this.counts[name] = (this.counts[name] ?? 0) + 1;
+  }
+
   /** Eén keer per frame, na het renderen */
   frame(delta) {
     if (!this.enabled) return;
@@ -52,6 +59,10 @@ export class PerfMonitor {
 
     const now = performance.now();
     if (now - this.lastRefresh > REFRESH_MS) {
+      for (const name in this.counts) {
+        this.rates[name] = (this.counts[name] * 1000) / (now - this.lastRefresh);
+        this.counts[name] = 0;
+      }
       this.lastRefresh = now;
       this.draw();
     }
@@ -69,6 +80,8 @@ export class PerfMonitor {
       `CPU  camera     ${ms('camera')}`,
       `CPU  physics    ${ms('physics')}`,
       `CPU  renderen   ${ms('render')}`,
+      '',
+      `hand  ${(this.rates.hand ?? 0).toFixed(1).padStart(4)} /s   ${ms('hand')} per detectie`,
       '',
       `draw calls  ${info.drawCalls}`,
       `driehoeken  ${info.triangles.toLocaleString('nl-BE')}`,

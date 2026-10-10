@@ -20,6 +20,10 @@ const CELLS = GRID_W * GRID_H;
 const BRIGHTNESS_EVERY = 6; // niet elk camerabeeld meten: licht verandert traag
 
 // Hand
+// Eén detectie duurt ±80–160 ms, dus één worker haalt maar ±6–11 per seconde. Meerdere workers
+// werken om beurten een camerabeeld af (gemeten: 1 → 11/s, 2 → 22/s, 3 → 37/s). Elke worker
+// gebruikt een eigen processorkern en laadt het model apart (±15 MB geheugen extra per worker).
+const HAND_WORKERS = 2;
 const REACH = 1.2; // handbeweging uitvergroten: randen halen zonder je hand uit beeld te bewegen
 const FOLLOW_SPEED = 14; // afvlakken van het schokken (hoger = sneller, maar onrustiger)
 const LOST_AFTER = 300; // ms zonder hand: hand-aanwijzer laat los
@@ -28,9 +32,10 @@ const LOST_AFTER = 300; // ms zonder hand: hand-aanwijzer laat los
 const LUMA = vec3(0.2126, 0.7152, 0.0722);
 
 export class CameraVision {
-  constructor(renderer, handPointer) {
+  constructor(renderer, handPointer, perf) {
     this.renderer = renderer;
     this.handPointer = handPointer;
+    this.perf = perf; // prestatiemeter (?debug): detecties per seconde en ms per detectie
     this.running = false;
 
     this.handTarget = { x: 0, y: 0 }; // laatst gevonden handpositie (NDC)
@@ -39,9 +44,12 @@ export class CameraVision {
     this.hasHand = false;
     this.indicator = document.getElementById('hand-indicator');
 
-    this.worker = null;
-    this.workerReady = false;
-    this.workerBusy = false; // nog bezig met het vorige camerabeeld: dan geen nieuw sturen
+    // Handherkenning: { worker, ready, busy } per worker. busy = nog bezig met een camerabeeld
+    this.workers = [];
+    this.workerReady = false; // minstens één worker klaar
+    this.workerErrors = 0;
+    this.sendingFrame = false; // camerabeeld wordt net verkleind
+    this.lastHandTimestamp = 0; // nieuwste verwerkte beeld: oudere resultaten negeren
 
     this.newFrame = false;
     this.framesSinceBrightness = 0;
@@ -146,40 +154,53 @@ export class CameraVision {
 
   // --- Handtracking (MediaPipe in een Web Worker) ---
 
-  /** Worker één keer aanmaken en het handmodel laden (de eerste keer ±20 MB, daarna uit de cache) */
+  /** Workers één keer aanmaken en het handmodel laden (de eerste keer ±20 MB, daarna uit de cache) */
   startHandTracking() {
-    if (this.worker) return;
+    if (this.workers.length) return;
     this.setStatus('Handmodel laden…');
-    this.worker = new Worker(new URL('./handWorker.js', import.meta.url), { type: 'module' });
-    this.worker.onmessage = ({ data }) => this.onWorkerMessage(data);
-    // CPU eerst: dan blijft de GPU helemaal voor de wei (gemeten: GPU liet de wei zakken)
-    this.worker.postMessage({ type: 'init', delegates: ['CPU', 'GPU'] });
+    for (let n = 0; n < HAND_WORKERS; n++) {
+      const entry = { worker: new Worker(new URL('./handWorker.js', import.meta.url), { type: 'module' }), ready: false, busy: false };
+      entry.worker.onmessage = ({ data }) => this.onWorkerMessage(entry, data);
+      // CPU eerst: dan blijft de GPU helemaal voor de wei (gemeten: GPU liet de wei zakken)
+      entry.worker.postMessage({ type: 'init', delegates: ['CPU', 'GPU'] });
+      this.workers.push(entry);
+    }
   }
 
-  onWorkerMessage(data) {
+  onWorkerMessage(entry, data) {
     if (data.type === 'ready') {
+      entry.ready = true;
+      if (!this.workerReady && this.running) this.setStatus('Hou je hand voor de camera');
       this.workerReady = true;
-      if (this.running) this.setStatus('Hou je hand voor de camera');
     } else if (data.type === 'error') {
       console.warn('Handtracking niet beschikbaar:', data.message);
-      this.setStatus('Handmodel kon niet laden: de muis werkt gewoon verder');
+      // Pas opgeven als geen enkele worker het model kon laden
+      if (++this.workerErrors === this.workers.length) this.setStatus('Handmodel kon niet laden: de muis werkt gewoon verder');
     } else if (data.type === 'hand') {
-      this.workerBusy = false;
+      entry.busy = false;
+      this.perf?.record('hand', data.ms);
+      this.perf?.count('hand');
+      // Een worker met een ouder camerabeeld kan later klaar zijn: dat resultaat is al achterhaald
+      if (data.timestamp < this.lastHandTimestamp) return;
+      this.lastHandTimestamp = data.timestamp;
       if (this.running && data.palm) this.onHand(data.palm);
     }
   }
 
-  /** Camerabeeld als ImageBitmap naar de worker (overgedragen, niet gekopieerd) */
+  /** Camerabeeld als ImageBitmap naar een vrije worker (overgedragen, niet gekopieerd) */
   async sendFrameToWorker() {
-    if (!this.workerReady || this.workerBusy) return;
-    this.workerBusy = true;
+    const entry = this.workers.find((w) => w.ready && !w.busy);
+    if (!entry || this.sendingFrame) return;
+    entry.busy = true;
+    this.sendingFrame = true;
     try {
       // Verkleind: het handmodel werkt intern op ±224 px, groter beeld kost alleen extra tijd
       const bitmap = await createImageBitmap(this.video, { resizeWidth: 320, resizeHeight: 240 });
-      this.worker.postMessage({ type: 'frame', bitmap, timestamp: performance.now() }, [bitmap]);
+      entry.worker.postMessage({ type: 'frame', bitmap, timestamp: performance.now() }, [bitmap]);
     } catch {
-      this.workerBusy = false;
+      entry.busy = false;
     }
+    this.sendingFrame = false;
   }
 
   /** Hand gevonden: palm = midden van de handpalm (0..1 in het beeld, al gespiegeld) */

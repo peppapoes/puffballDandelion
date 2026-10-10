@@ -10,6 +10,7 @@ import { Sky } from './world/Sky.js';
 import { createGround } from './world/Ground.js';
 import { Meadow } from './world/Meadow.js';
 import { FlowerPhysics } from './world/FlowerPhysics.js';
+import { Fireflies } from './world/Fireflies.js';
 import { Pointer, attachMouse } from './interaction/Pointer.js';
 import { CameraVision } from './interaction/CameraVision.js';
 
@@ -55,9 +56,13 @@ export class App {
     this.pointers = [this.mousePointer, this.handPointer];
 
     // Webcam als sensor op de GPU: beweging (hand) en licht van de kamer (dag/nacht)
-    this.cameraVision = new CameraVision(this.renderer, this.handPointer);
+    this.cameraVision = new CameraVision(this.renderer, this.handPointer, this.perf);
 
     this.flowerPhysics = new FlowerPhysics(this.meadow, this.renderer); // compute shader op de GPU
+
+    // Tweede Shadertoy-shader: vuurvliegjes bij schemering, schrikken van dezelfde aanwijzers
+    this.fireflies = new Fireflies(this.renderer, this.flowerPhysics.pointerUniforms);
+    this.scene.add(this.fireflies.mesh);
 
     initWorldStateInput();
     window.addEventListener('resize', () => this.onResize());
@@ -115,6 +120,7 @@ export class App {
     for (const pointer of this.pointers) pointer.update(this.camera);
     this.flowerPhysics.update(delta, this.pointers);
     this.meadow.update(delta, this.camera); // LOD: dichtste bollen krijgen echte pluisjes
+    this.fireflies.update(delta, this.camera); // physics: opschrikken en terugdalen
     perf.end('physics');
 
     perf.begin('render');

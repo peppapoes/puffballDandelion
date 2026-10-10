@@ -5,7 +5,9 @@
  * In:  { type: 'init' }  → model laden
  *      { type: 'frame', bitmap, timestamp } → hand zoeken in dit camerabeeld
  * Uit: { type: 'ready', delegate } / { type: 'error', message }
- *      { type: 'hand', palm: { x, y } | null }  (0..1 in het beeld, gespiegeld zoals een spiegel)
+ *      { type: 'hand', palm: { x, y } | null, timestamp, ms }  (palm: 0..1 in het beeld, gespiegeld zoals een spiegel)
+ *
+ * CameraVision start er meerdere tegelijk (HAND_WORKERS), elk met een eigen model.
  */
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 
@@ -48,8 +50,9 @@ self.onmessage = async ({ data }) => {
       }
     }
     data.bitmap.close(); // geheugen van het camerabeeld meteen vrijgeven
-    // ms = hoe lang de herkenning duurde (voor de prestatiemeter)
-    self.postMessage({ type: 'hand', palm, ms: performance.now() - started });
+    // ms = hoe lang de herkenning duurde (voor de prestatiemeter);
+    // timestamp terug: met meerdere workers kan een ouder beeld later klaar zijn
+    self.postMessage({ type: 'hand', palm, timestamp: data.timestamp, ms: performance.now() - started });
   }
 };
 
