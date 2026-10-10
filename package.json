@@ -19,6 +19,7 @@
   },
   "homepage": "https://github.com/peppapoes/puffballDandelion#readme",
   "dependencies": {
+    "@mediapipe/tasks-vision": "^1.1.0",
     "three": "^0.186.1"
   },
   "devDependencies": {

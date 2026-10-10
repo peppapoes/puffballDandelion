@@ -16,9 +16,9 @@ const SCALE_MIN = 0.8; // bloemen verschillen ±20% in grootte
 const SCALE_MAX = 1.2;
 
 // LOD: volledige pluisjes alleen op de dichtste bollen in beeld, verderop een eenvoudige bol
-// Gemeten op retina: de parachuutjes zijn het duurste deel (±200 driehoeken per pluisje)
-const NEAR_HEADS = 48; // aantal bollen met echte pluisjes
-const SEEDS_PER_HEAD = 72; // pluisjes per bol
+// puffballSimple: een pluisje is maar 16 driehoeken, dus veel bollen kunnen echte pluisjes krijgen
+const NEAR_HEADS = 160; // aantal bollen met echte pluisjes
+const SEEDS_PER_HEAD = 90; // pluisjes per bol
 const SEED_LOWEST = -0.55; // geen pluisjes onderaan de bol, waar de steel zit (y van de richting)
 const LOD_INTERVAL = 0.1; // seconden tussen het opnieuw kiezen van de dichtste bollen
 const IMPOSTOR_SIZE = 512; // resolutie van de gebakken foto van een pluizenbol (verre bollen)
@@ -26,7 +26,7 @@ const IMPOSTOR_SIZE = 512; // resolutie van de gebakken foto van een pluizenbol 
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // ±137,5°: zoals de pitten van een zonnebloem
 
 /**
- * De wei met het Blender-model (blender/puffball.blend → public/models/puffball.glb).
+ * De wei met het Blender-model (blender/puffballSimple.blend → public/models/puffballSimple.glb).
  *
  * Vijf InstancedMeshes (elk één draw call):
  * - stelen (alle bloemen), buigen met wind + veer-physics
@@ -227,7 +227,8 @@ export class Meadow {
 
     // Gebakken foto; de helft van de bloemen gespiegeld, zodat niet alle bollen identiek zijn
     const mirror = fract(this.flowerBuffer.element(instanceIndex).x.mul(12.9898)).greaterThan(0.5);
-    const photo = texture(this.impostorTexture, vec2(select(mirror, uv().x.oneMinus(), uv().x), uv().y));
+    // y omgekeerd: in een render target ligt de bovenkant van de foto bij v = 0
+    const photo = texture(this.impostorTexture, vec2(select(mirror, uv().x.oneMinus(), uv().x), uv().y.oneMinus()));
 
     // Kleur zoals de echte pluisjes (applyPuffColor): wit overdag, blauwig met neon-gloed 's nachts.
     // Onbelicht materiaal, dus zelf dimmen 's nachts.

@@ -12,7 +12,7 @@ Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in p
 | ↑ (tikken) | Een stap terug in de tijd |
 | ↓ / ↑ ingedrukt houden | De tijd loopt vloeiend door (een volle dag in ±10 seconden) |
 | Muis door de bloemen bewegen | De pluizenbollen worden meegeduwd en veren na |
-| 📷 Camera aan (knop rechtsonder) | Beweeg je hand voor de webcam en wrijf door de wei: je raakt een veel groter stuk aan dan met de muis. Het licht in je kamer stuurt dag en nacht (een pijltje neemt 20 s voorrang). Geen camera? De muis en de pijltjes blijven werken. |
+| 📷 Camera aan (knop rechtsonder) | Hou je hand voor de webcam en wrijf door de wei: je raakt een veel groter stuk aan dan met de muis. Het licht in je kamer stuurt dag en nacht (een pijltje neemt 20 s voorrang). Geen camera? De muis en de pijltjes blijven werken. |
 | Slepen / scrollen | Rond de wei draaien en zoomen (begrensd) |
 | `?debug` achter de URL | Prestatiepaneel; in de console meet `await app.benchmark()` de echte kost per frame |
 
@@ -21,10 +21,12 @@ Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in p
 - [Three.js](https://threejs.org/) met `WebGPURenderer` (`three/webgpu`), valt automatisch terug op WebGL2
 - Shaders in TSL (`three/tsl`)
 - [Vite](https://vite.dev/) als build-tool
-- Webcam als sensor, volledig op de GPU met **compute shaders in TSL** (geen AI-library): bewegingsdetectie (frame differencing) voor handtracking en een lichtmeter voor dag/nacht (`src/interaction/CameraVision.js`)
+- Webcam als sensor (`src/interaction/CameraVision.js`):
+  - handtracking met [MediaPipe Hand Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker) in een Web Worker (`handWorker.js`), zodat de wei vlot blijft; herkent alleen handen, geen hoofd of andere beweging
+  - lichtmeter op de GPU met **compute shaders in TSL**: de gemiddelde helderheid van het camerabeeld stuurt dag en nacht
 - De lucht rekent het dure deel (atmosfeer, wolken) op 1/16 van de pixels in een render target; sterren en horizon op volle resolutie
 - Veer-physics van de stelen als compute shader op de GPU (`src/world/FlowerPhysics.js`)
-- Eigen Blender-model (`blender/puffball.blend` → `public/models/puffball.glb`): steel, bol (receptacle) en pluisje. De pluisjes worden in code met de gulden hoek (Fibonacci-spiraal) over de bol verdeeld en met instancing getekend; LOD: echte pluisjes op de dichtste bollen, een getekende billboard-pluizenbol in de verte
+- Eigen Blender-model (`blender/puffballSimple.blend` → `public/models/puffballSimple.glb`): steel, bol (receptacle) en pluisje. De pluisjes worden in code met de gulden hoek (Fibonacci-spiraal) over de bol verdeeld en met instancing getekend; LOD: echte pluisjes op de dichtste bollen, in de verte een billboard met een gebakken foto van een echte pluizenbol (impostor)
 
 ## Lokaal draaien
 
@@ -47,7 +49,7 @@ src/
   interaction/         aanwijzers (muis, hand) en de webcam op de GPU (beweging + licht)
 blender/               Blender-werkbestanden (.blend), niet online
 public/
-  models/              Blender-exports (GLB): puffball.glb
+  models/              Blender-exports (GLB): puffballSimple.glb
   audio/               muziek en windgeruis
 ```
 
@@ -81,3 +83,4 @@ De originele GLSL staat ter referentie in `shaders/original/circadian.glsl`.
 ### Libraries
 
 - [three.js](https://github.com/mrdoob/three.js) (MIT)
+- [@mediapipe/tasks-vision](https://www.npmjs.com/package/@mediapipe/tasks-vision) 1.1.0 (Apache 2.0); WebAssembly via https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.0/wasm, handmodel `hand_landmarker.task` via https://storage.googleapis.com/mediapipe-models/

@@ -1,38 +1,28 @@
 import * as THREE from 'three/webgpu';
 import { daylightFromBrightness, isManualOverride } from '../state/worldState.js';
-import {
-  Fn, Loop, float, vec2, vec3, texture, instancedArray, instanceIndex, abs, clamp, dot, max, pow,
-} from 'three/tsl';
+import { Fn, Loop, float, vec2, vec3, texture, instancedArray, instanceIndex, dot, pow } from 'three/tsl';
 
 /**
- * De webcam als sensor, volledig op de GPU (compute shaders in TSL), zonder AI-library.
+ * De webcam als sensor:
  *
- * 1. Beweging (frame differencing): het camerabeeld wordt een rooster van GRID_W × GRID_H vakjes.
- *    Per vakje vergelijkt de GPU de helderheid met het vorige camerabeeld: groot verschil =
- *    daar beweegt iets. Zo ontstaat een bewegingskaart die langzaam uitdooft (een veeg laat een spoor).
- * 2. Lichtmeter: de gemiddelde helderheid van het hele beeld (donkere kamer = nacht).
- *
- * 3. Handtracking: het zwaartepunt van de beweging is waar je hand beweegt. Dat punt stuurt
- *    een Pointer met een groot aanraakgebied (FlowerPhysics) en een cirkel op het scherm.
- *
- * De resultaten gaan asynchroon terug naar JavaScript.
+ * 1. Handtracking: MediaPipe Hand Landmarker (Google, zonder ml5) in een Web Worker
+ *    (handWorker.js), zodat de wei vlot blijft. Herkent alleen handen, geen hoofd of lichaam.
+ *    Het midden van je handpalm stuurt een Pointer met een groot aanraakgebied
+ *    (FlowerPhysics) en een cirkel op het scherm.
+ * 2. Lichtmeter op de GPU (compute shaders in TSL): de gemiddelde helderheid van het
+ *    camerabeeld stuurt dag en nacht (donkere kamer = nacht).
  */
 
+// Lichtmeter: het camerabeeld als rooster van vakjes, per vakje de helderheid
 const GRID_W = 64;
 const GRID_H = 48;
 const CELLS = GRID_W * GRID_H;
+const BRIGHTNESS_EVERY = 6; // niet elk camerabeeld meten: licht verandert traag
 
-const NOISE = 0.035; // kleinere verschillen zijn ruis van de camera, geen beweging
-const GAIN = 8; // verschil in helderheid → bewegingssterkte (0..1)
-const DECAY = 0.82; // per camerabeeld: hoe snel het spoor van een beweging uitdooft
-const BRIGHTNESS_EVERY = 6; // lichtmeter niet elk camerabeeld teruglezen (licht verandert traag)
-
-// Hand = zwaartepunt van de beweging
-const HAND_CELL_THRESHOLD = 0.15; // vakjes met minder beweging tellen niet mee
-const HAND_MIN_MOTION = 4; // totale beweging nodig om van "een hand" te spreken
+// Hand
 const REACH = 1.2; // handbeweging uitvergroten: randen halen zonder je hand uit beeld te bewegen
 const FOLLOW_SPEED = 14; // afvlakken van het schokken (hoger = sneller, maar onrustiger)
-const LOST_AFTER = 300; // ms zonder beweging: hand-aanwijzer laat los
+const LOST_AFTER = 300; // ms zonder hand: hand-aanwijzer laat los
 
 // Luma: hoe helder een kleur lijkt (groen weegt het zwaarst voor het oog)
 const LUMA = vec3(0.2126, 0.7152, 0.0722);
@@ -48,12 +38,15 @@ export class CameraVision {
     this.handLastSeen = 0;
     this.hasHand = false;
     this.indicator = document.getElementById('hand-indicator');
+
+    this.worker = null;
+    this.workerReady = false;
+    this.workerBusy = false; // nog bezig met het vorige camerabeeld: dan geen nieuw sturen
+
     this.newFrame = false;
     this.framesSinceBrightness = 0;
     this.readPending = false;
     this.exposureLocked = false;
-
-    this.motion = new Float32Array(CELLS); // laatste bewegingskaart op de CPU (0..1 per vakje)
     this.brightness = null; // laatste lichtmeting (0..1), null = nog geen meting
 
     this.video = document.getElementById('camera-video');
@@ -61,7 +54,7 @@ export class CameraVision {
     this.status = document.getElementById('camera-status');
     this.button.addEventListener('click', () => (this.running ? this.stop() : this.start()));
 
-    this.createGpuPrograms();
+    this.createLightMeter();
   }
 
   /** Knop tonen (na het startscherm) */
@@ -69,59 +62,38 @@ export class CameraVision {
     this.button.hidden = false;
   }
 
-  // --- GPU: compute shaders ---
+  // --- Lichtmeter op de GPU ---
 
-  createGpuPrograms() {
+  createLightMeter() {
     // Camerabeeld als textuur. sRGB (vereist door Three.js): de GPU leest lineaire kleuren,
     // die rekenen we hieronder terug naar waargenomen helderheid.
     this.videoTexture = new THREE.VideoTexture(this.video);
     this.videoTexture.colorSpace = THREE.SRGBColorSpace;
-
-    // Opslagbuffers op de GPU
-    this.lumaBuffer = instancedArray(CELLS, 'float'); // helderheid per vakje, vorig camerabeeld
-    this.motionBuffer = instancedArray(CELLS, 'float'); // bewegingskaart
-    this.brightnessBuffer = instancedArray(1, 'float'); // lichtmeter
-
     const videoTex = texture(this.videoTexture);
+
+    this.lumaBuffer = instancedArray(CELLS, 'float'); // helderheid per vakje
+    this.brightnessBuffer = instancedArray(1, 'float'); // gemiddelde
     const lumaBuffer = this.lumaBuffer;
-    const motionBuffer = this.motionBuffer;
 
-    // Compute 1: per vakje helderheid meten en vergelijken met het vorige camerabeeld
-    this.motionCompute = Fn(() => {
+    // Compute 1: per vakje de helderheid (één thread per vakje)
+    const lumaCompute = Fn(() => {
       const i = instanceIndex;
-      const cx = float(i.mod(GRID_W));
-      const cy = float(i.div(GRID_W));
-
-      // Midden van het vakje; rij 0 = bovenaan het scherm.
-      // x gespiegeld (bewegen als in een spiegel); y omgekeerd: v = 0 is onderaan de videotextuur
-      const center = vec2(cx.add(0.5).div(GRID_W), cy.add(0.5).div(GRID_H));
-      const uv = vec2(float(1).sub(center.x), float(1).sub(center.y));
-
-      // Vier stalen per vakje: minder ruis dan één pixel
-      const d = vec2(0.25 / GRID_W, 0.25 / GRID_H);
-      const rgb = videoTex.sample(uv.add(vec2(d.x.negate(), d.y.negate()))).level(0).rgb
-        .add(videoTex.sample(uv.add(vec2(d.x, d.y.negate()))).level(0).rgb)
-        .add(videoTex.sample(uv.add(vec2(d.x.negate(), d.y))).level(0).rgb)
-        .add(videoTex.sample(uv.add(d)).level(0).rgb)
-        .mul(0.25);
-      // Lineaire helderheid → waargenomen helderheid (zoals het oog: donkere tinten beter onderscheiden)
-      const luma = pow(dot(rgb, LUMA), 1 / 2.2);
-
-      const previous = lumaBuffer.element(i);
-      const difference = max(abs(luma.sub(previous)).sub(NOISE), 0).mul(GAIN);
-      const motion = motionBuffer.element(i);
-      motion.assign(clamp(max(difference, motion.mul(DECAY)), 0, 1));
-      previous.assign(luma);
+      const uv = vec2(float(i.mod(GRID_W)).add(0.5).div(GRID_W), float(i.div(GRID_W)).add(0.5).div(GRID_H));
+      const rgb = videoTex.sample(uv).level(0).rgb;
+      // Lineaire helderheid → waargenomen helderheid (zoals het oog)
+      lumaBuffer.element(i).assign(pow(dot(rgb, LUMA), 1 / 2.2));
     })().compute(CELLS);
 
-    // Compute 2: gemiddelde helderheid van het hele beeld (één thread telt alle vakjes op)
-    this.brightnessCompute = Fn(() => {
+    // Compute 2: gemiddelde van alle vakjes (één thread telt alles op)
+    const averageCompute = Fn(() => {
       const sum = float(0).toVar();
       Loop(CELLS, ({ i }) => {
         sum.addAssign(lumaBuffer.element(i));
       });
       this.brightnessBuffer.element(0).assign(sum.div(CELLS));
     })().compute(1);
+
+    this.lightComputes = [lumaCompute, averageCompute];
   }
 
   // --- Webcam ---
@@ -136,17 +108,14 @@ export class CameraVision {
       });
       this.video.srcObject = stream;
       await this.video.play();
-      this.exposureLocked = await lockExposure(stream.getVideoTracks()[0]);
 
       this.running = true;
       this.watchFrames();
       this.video.classList.add('visible');
       this.button.textContent = '📷 Camera uit';
-      this.setStatus(
-        this.exposureLocked
-          ? 'Beweeg door de wei · het licht van je kamer stuurt de dag'
-          : 'Beweeg door de wei · lichtmeter beperkt (camera regelt zelf de belichting)'
-      );
+
+      this.startHandTracking();
+      this.exposureLocked = await lockExposure(stream.getVideoTracks()[0]);
     } catch (error) {
       console.warn('Camera niet beschikbaar:', error);
       this.stopStream();
@@ -158,82 +127,101 @@ export class CameraVision {
   stop() {
     this.running = false;
     this.stopStream();
-    this.motion.fill(0);
     this.brightness = null;
     this.loseHand();
     this.button.textContent = '📷 Camera aan';
     this.setStatus('');
   }
 
-  /** Alleen rekenen als de webcam een nieuw beeld heeft (±30 per seconde) */
+  /** Bij elk nieuw camerabeeld (±30 per seconde): lichtmeter en handherkenning bijwerken */
   watchFrames() {
     const onFrame = () => {
       if (!this.running) return;
       this.newFrame = true;
+      this.sendFrameToWorker();
       this.video.requestVideoFrameCallback(onFrame);
     };
     this.video.requestVideoFrameCallback(onFrame);
   }
 
-  /** Elke frame: hand volgen; bij een nieuw camerabeeld de compute shaders draaien en teruglezen */
-  update(delta) {
-    if (!this.running) return;
+  // --- Handtracking (MediaPipe in een Web Worker) ---
 
-    this.followHand(delta);
-    if (!this.newFrame) return;
-    this.newFrame = false;
-
-    const measureLight = ++this.framesSinceBrightness >= BRIGHTNESS_EVERY;
-    if (measureLight) this.framesSinceBrightness = 0;
-    this.renderer.compute(measureLight ? [this.motionCompute, this.brightnessCompute] : this.motionCompute);
-
-    // Asynchroon teruglezen: niet wachten, de physics gebruikt het laatste resultaat
-    if (this.readPending) return;
-    this.readPending = true;
-    const reads = [this.renderer.getArrayBufferAsync(this.motionBuffer.value)];
-    if (measureLight) reads.push(this.renderer.getArrayBufferAsync(this.brightnessBuffer.value));
-    Promise.all(reads).then(([motion, brightness]) => {
-      if (this.running) {
-        this.motion.set(new Float32Array(motion));
-        if (brightness) {
-          this.brightness = new Float32Array(brightness)[0];
-          this.showLight();
-        }
-        this.onMotion();
-      }
-      this.readPending = false;
-    });
+  /** Worker één keer aanmaken en het handmodel laden (de eerste keer ±20 MB, daarna uit de cache) */
+  startHandTracking() {
+    if (this.worker) return;
+    this.setStatus('Handmodel laden…');
+    this.worker = new Worker(new URL('./handWorker.js', import.meta.url), { type: 'module' });
+    this.worker.onmessage = ({ data }) => this.onWorkerMessage(data);
+    // CPU eerst: dan blijft de GPU helemaal voor de wei (gemeten: GPU liet de wei zakken)
+    this.worker.postMessage({ type: 'init', delegates: ['CPU', 'GPU'] });
   }
 
-  /** Statusregel: wat meet de lichtmeter, en wat maakt de wereld ervan? */
-  showLight() {
-    const percent = Math.round(this.brightness * 100);
-    if (isManualOverride()) {
-      this.setStatus(`Licht in je kamer: ${percent}% · pijltjes hebben even voorrang`);
-      return;
+  onWorkerMessage(data) {
+    if (data.type === 'ready') {
+      this.workerReady = true;
+      if (this.running) this.setStatus('Hou je hand voor de camera');
+    } else if (data.type === 'error') {
+      console.warn('Handtracking niet beschikbaar:', data.message);
+      this.setStatus('Handmodel kon niet laden: de muis werkt gewoon verder');
+    } else if (data.type === 'hand') {
+      this.workerBusy = false;
+      if (this.running && data.palm) this.onHand(data.palm);
     }
-    const t = daylightFromBrightness(this.brightness);
-    const moment = t < 0.25 ? 'nacht' : t < 0.6 ? 'schemering' : 'dag';
-    const limited = this.exposureLocked ? '' : ' (camera regelt zelf de belichting)';
-    this.setStatus(`Licht in je kamer: ${percent}% → ${moment}${limited}`);
   }
 
-  /** Nieuwe bewegingskaart binnen: waar is de hand? */
-  onMotion() {
-    const hand = this.findHand();
-    if (!hand) return;
-    this.handTarget.x = hand.x;
-    this.handTarget.y = hand.y;
+  /** Camerabeeld als ImageBitmap naar de worker (overgedragen, niet gekopieerd) */
+  async sendFrameToWorker() {
+    if (!this.workerReady || this.workerBusy) return;
+    this.workerBusy = true;
+    try {
+      // Verkleind: het handmodel werkt intern op ±224 px, groter beeld kost alleen extra tijd
+      const bitmap = await createImageBitmap(this.video, { resizeWidth: 320, resizeHeight: 240 });
+      this.worker.postMessage({ type: 'frame', bitmap, timestamp: performance.now() }, [bitmap]);
+    } catch {
+      this.workerBusy = false;
+    }
+  }
+
+  /** Hand gevonden: palm = midden van de handpalm (0..1 in het beeld, al gespiegeld) */
+  onHand(palm) {
+    // Beeld → NDC (-1..1, y omhoog), uitvergroot zodat je de randen haalt
+    const x = Math.max(-1, Math.min(1, (palm.x * 2 - 1) * REACH));
+    const y = Math.max(-1, Math.min(1, -(palm.y * 2 - 1) * REACH));
+    this.handTarget.x = x;
+    this.handTarget.y = y;
     if (!this.hasHand) {
       // Hand verschijnt: meteen op de juiste plek, niet van de vorige plek aan komen glijden
-      this.handSmoothed.x = hand.x;
-      this.handSmoothed.y = hand.y;
+      this.handSmoothed.x = x;
+      this.handSmoothed.y = y;
       this.hasHand = true;
     }
     this.handLastSeen = performance.now();
   }
 
-  /** Elke frame: vloeiend naar de handpositie, aanwijzer en cirkel bijwerken */
+  /** Elke frame: hand volgen; bij een nieuw camerabeeld af en toe het licht meten */
+  update(delta) {
+    if (!this.running) return;
+    this.followHand(delta);
+
+    if (!this.newFrame) return;
+    this.newFrame = false;
+    if (++this.framesSinceBrightness < BRIGHTNESS_EVERY) return;
+    this.framesSinceBrightness = 0;
+
+    this.renderer.compute(this.lightComputes);
+    if (this.readPending) return;
+    this.readPending = true;
+    // Asynchroon teruglezen: niet wachten op de GPU
+    this.renderer.getArrayBufferAsync(this.brightnessBuffer.value).then((buffer) => {
+      if (this.running) {
+        this.brightness = new Float32Array(buffer)[0];
+        this.showLight();
+      }
+      this.readPending = false;
+    });
+  }
+
+  /** Vloeiend naar de handpositie, aanwijzer en cirkel bijwerken */
   followHand(delta) {
     if (this.hasHand && performance.now() - this.handLastSeen > LOST_AFTER) this.loseHand();
     if (!this.hasHand) return;
@@ -256,28 +244,18 @@ export class CameraVision {
     this.indicator.classList.remove('visible');
   }
 
-  /**
-   * Handpositie uit de bewegingskaart: het zwaartepunt van alle vakjes waar duidelijk
-   * beweging is. Beweeg je je hand, dan ligt dat punt op je hand.
-   * Geeft { x, y } in NDC (-1..1), of null als er te weinig beweging is.
-   */
-  findHand() {
-    let total = 0;
-    let sumX = 0;
-    let sumY = 0;
-    for (let i = 0; i < CELLS; i++) {
-      const m = this.motion[i];
-      if (m < HAND_CELL_THRESHOLD) continue;
-      total += m;
-      sumX += (i % GRID_W) * m;
-      sumY += Math.floor(i / GRID_W) * m;
+  /** Statusregel: wat meet de lichtmeter, en wat maakt de wereld ervan? */
+  showLight() {
+    if (!this.workerReady) return; // eerst "Handmodel laden…" laten staan
+    const percent = Math.round(this.brightness * 100);
+    if (isManualOverride()) {
+      this.setStatus(`Licht in je kamer: ${percent}% · pijltjes hebben even voorrang`);
+      return;
     }
-    if (total < HAND_MIN_MOTION) return null;
-
-    // Vakje → NDC (rij 0 = bovenaan), uitvergroot zodat je de randen haalt
-    const x = (((sumX / total + 0.5) / GRID_W) * 2 - 1) * REACH;
-    const y = -(((sumY / total + 0.5) / GRID_H) * 2 - 1) * REACH;
-    return { x: Math.max(-1, Math.min(1, x)), y: Math.max(-1, Math.min(1, y)) };
+    const t = daylightFromBrightness(this.brightness);
+    const moment = t < 0.25 ? 'nacht' : t < 0.6 ? 'schemering' : 'dag';
+    const limited = this.exposureLocked ? '' : ' (camera regelt zelf de belichting)';
+    this.setStatus(`Licht in je kamer: ${percent}% → ${moment}${limited}`);
   }
 
   setStatus(text) {

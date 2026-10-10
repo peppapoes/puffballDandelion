@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-const MODEL_URL = './models/puffball.glb'; // export van blender/puffball.blend
+const MODEL_URL = './models/puffballSimple.glb'; // export van blender/puffballSimple.blend
 
 /**
  * Laadt het Blender-model van de paardenbloem en zet de onderdelen klaar voor de wei:
