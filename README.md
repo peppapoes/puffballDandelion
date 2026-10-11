@@ -1,6 +1,6 @@
 # Puffball Dandelion
 
-Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in pluizenbolfase, waar de wind in golven overheen trekt. Stuur de wind, zoom in op één bloem en wrijf of blaas de pluisjes weg. De lucht gaat mee van dag naar nacht, en 's nachts wordt de wei een neon-veld vol lichtjes.
+Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in pluizenbolfase, waar de wind in golven overheen trekt. Stuur de wind met een windroos en je adem, zoom in op één bloem en wrijf of blaas de pluisjes weg. De lucht gaat mee van dag naar nacht, en 's nachts zweven er vuurvliegjes boven de wei.
 
 **Live:** https://delatterfemke.be/puffballDandelion/
 
@@ -34,6 +34,7 @@ Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in p
 - De lucht rekent het dure deel (atmosfeer, wolken) op 1/16 van de pixels in een render target; sterren en horizon op volle resolutie
 - Wind (`src/world/wind.js`): ruis die in de windrichting over de wei schuift, zodat vlagen als golven over het veld trekken. Richting via de windroos (`src/interaction/WindRose.js`), kracht via blazen in de microfoon (`updateWind` in `src/state/worldState.js`)
 - Veer-physics van de stelen als compute shader op de GPU (`src/world/FlowerPhysics.js`)
+- Schaduwen van de bloemen op de grond, berekend in plaats van met een shadow map (die zou de hele wei een tweede keer tekenen): een compute shader maakt elke frame een schaduwkaart van de wei van bovenaf (512×512). Per vakje gaat hij na of de straal naar de zon een bol of steel in de buurt raakt (alleen de 3×3 vakjes van het plaatsingsrooster). Ze bewegen mee met wind en physics; 's nachts en bij een lage zon zwakker (`src/world/FlowerShadows.js`)
 - Pluisjes wegwrijven of wegblazen (`src/world/Seeds.js`): twee compute shaders. De eerste geeft elk pluisje van de gekozen bloem een kans om los te komen (wrijfsnelheid van muis/hand, blaaskracht van de microfoon via de Web Audio API in `src/interaction/Microphone.js`: alleen luid én ruisachtig geluid telt als blazen, gemeten met de spectrale vlakheid van het spectrum (FFT), zodat praten of muziek de pluisjes niet wegblaast). De tweede is de physics van de vliegende pluisjes: meedrijven met dezelfde wind als de wei, traag dalen met luchtweerstand (parachute), fladderen, op de grond blijven liggen. Een los pluisje draait rechtop en zijn pluis waaiert open. Tot 64 kale bloemen worden onthouden (welke pluisjes los zijn); van ver wordt de foto van een kale bol doorzichtiger
 - Inzoomen op één bloem met scherptediepte (post-processing met `RenderPipeline`, `src/core/postprocessing.js`): de scène gaat met kleur en diepte naar een textuur, daarna wordt per pixel gemengd tussen scherp en een wazige versie (gaussian blur op halve resolutie), volgens de afstand tot de gekozen bol; plus een zacht vignet. Alleen actief als je ingezoomd bent
 - Tweede Shadertoy-shader: 300 vuurvliegjes als billboards (één draw call) met het knipperritme en de gloed van "Fireflies at Dusk" (`src/world/Fireflies.js`)

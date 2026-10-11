@@ -4,7 +4,7 @@
 
 Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in pluizenbolfase, waar de wind in golven overheen trekt. Je kan de wind zelf aansturen, op één bloem inzoomen en die aanraken, wrijven of wegblazen. Alles reageert zo realistisch mogelijk: stelen deinen na, pluisjes dwarrelen traag weg.
 
-Geen game, maar een volledige sfeerzetting: een lucht die meegaat van dag naar nacht, ambient muziek en windgeruis, en een wei die 's nachts verandert in een neon-veld vol lichtjes.
+Geen game, maar een volledige sfeerzetting: een lucht die meegaat van dag naar nacht, ambient muziek en windgeruis, en een wei waar 's nachts vuurvliegjes boven zweven.
 
 ### Wat het tot een geheel maakt
 
@@ -49,23 +49,22 @@ Wat je in het detail doet, zie je terug in het overzicht: weggeblazen pluisjes w
 
 #### 3. De bloem voelt
 
-- Hover met de muis of beweeg je hand voor de webcam: de steel buigt weg en de pluisjes in de buurt wiegen mee
+- Hover met de muis of beweeg je hand voor de webcam: de steel buigt weg en de pluisjes bewegen mee met de bol
 - Realistisch: de steel deint na als een veer in plaats van terug te springen
-- 's Nachts lichten de pluisjes in de buurt van je cursor of hand feller op
 
 #### 4. Pluisjes wegwrijven of wegblazen
 
 - Wrijf over de bol: hoe sneller, hoe meer pluisjes loskomen
 - Of blaas in de microfoon: hoe harder, hoe meer pluisjes
 - Losse pluisjes openen hun parachuutje en dwarrelen traag weg over de wei
-- De bol wordt zichtbaar kaler; na een tijdje groeien er nieuwe pluisjes aan
+- De bol wordt zichtbaar kaler en blijft kaal
 
 #### 5. Dag & nacht
 
 - Bij het openen volgt de wei de systeeminstelling: light mode = dag, dark mode = nacht
 - Pijltje omhoog = richting dag, pijltje omlaag = richting nacht, met een vloeiende overgang
-- Overdag: pluisjes zacht wit in het zonlicht, de gele bloemen in de wei staan open
-- 's Nachts: neon-randen, pluisjes die knipperen als vuurvliegjes, gele bloemen gesloten
+- Overdag: pluisjes zacht wit in het zonlicht
+- 's Nachts: blauwige pluisjes en vuurvliegjes die boven de wei zweven en knipperen
 
 #### 6. Ambient geluid
 
@@ -79,13 +78,13 @@ Wat je in het detail doet, zie je terug in het overzicht: weggeblazen pluisjes w
 
 | Onderdeel | Aantal | Wat exact |
 | --- | --- | --- |
-| Geporte Shadertoy-shaders | 2 | **Lucht:** Circadian, achtergrond die van dag naar nacht gaat. **Vuurvliegjes:** Fireflies at Dusk(CC0), knipperpatroon en gloed hergebruikt voor de pluisjes 's nachts. |
-| Eigen shaders (TSL) | 3 | **Windveld:** golvende wind over de wei, gedeeld door gras en bloemen. **Pluisjes-materiaal:** dag wit en doorschijnend, nacht neon. **Hover-gloed:** pluisjes lichten op bij cursor of hand. |
-| Extra WebGPU-libraries | 2 | three-particles: GPU-simulatie van de losse pluisjes via compute shaders, met je eigen Blender-pluisje als mesh. tsl-textures: procedurele texturen voor grond en blaadjes. |
+| Geporte Shadertoy-shaders | 2 | **Lucht:** Circadian, achtergrond die van dag naar nacht gaat. **Vuurvliegjes:** Fireflies at Dusk (CC0), knipperpatroon en gloed voor vuurvliegjes boven de wei 's nachts. |
+| Eigen shaders (TSL) | 2 | **Windveld:** golvende wind over de wei, gedeeld door de bloemen en de vliegende pluisjes. **Pluisjes-materiaal:** dag wit, nacht blauwig. |
+| Extra WebGPU-libraries | 2 | three-particles: GPU-simulatie van de losse pluisjes via compute shaders, met je eigen Blender-pluisje als mesh. tsl-textures: procedurele texturen voor de grond. |
 | Extra library (niet WebGPU) | 1 | MediaPipe Hand Landmarker: handtracking via de webcam |
 | Physics | 2 | **Veer-physics** voor de stelen (natrillen en uitdeinen). **Pluisjes-vlucht** met zwaartekracht, luchtweerstand, wind en turbulentie. |
-| Eigen Blender-modellen | 5 | Pluisje, steel, pluizenbol, bladrozet, gele bloem. Losse onderdelen die de code combineert en honderden keren hergebruikt. |
-| Morph targets (shape keys) | 4 | **Steel buigen:** gestuurd door wind en hover. **Gele bloem open/dicht:** gestuurd door dag en nacht. **Bol kaal:** gestuurd door hoeveel pluisjes weg zijn. **Parachuutje open:** gestuurd door de vlucht. |
+| Eigen Blender-modellen | 3 | Pluisje, steel, pluizenbol. Losse onderdelen die de code combineert en honderden keren hergebruikt. |
+| Morph targets (shape keys) | 3 | **Steel buigen:** gestuurd door wind en hover. **Bol kaal:** gestuurd door hoeveel pluisjes weg zijn. **Parachuutje open:** gestuurd door de vlucht. |
 | Baking | 2 | Ambient occlusion en detailtextuur gebakken op de bloemonderdelen; dag- en nacht-lightmap voor de grond van de wei. |
 | Procedureel in code | 2 | Pluisjes op de bol geplaatst volgens de gulden hoek (Fibonacci-spiraal, zoals de pitten van een zonnebloem); bloemen verspreid over de wei. |
 | Interactie | 7 | Muis over de wei, klikken om in te zoomen, hover, wrijven, handtracking, blazen, pijltjes; daarnaast de dark-mode-instelling |
@@ -97,19 +96,19 @@ Wat je in het detail doet, zie je terug in het overzicht: weggeblazen pluisjes w
 | --- | --- | --- | --- |
 | De wei en de wind | Windveld (eigen TSL) | Noise uit `three/tsl` als bewegend windveld; muispositie op de wei via raycasting voegt een lokale vlaag toe | Steel buigen (morph target) |
 | Inzoomen | — | Raycasting om de bloem te kiezen; vloeiende camera-overgang | — |
-| De bloem voelt je | Hover-gloed (eigen TSL) | Veer-physics op de buig-waarde; MediaPipe voor de hand | Steel buigen (morph target) |
+| De bloem voelt je | — | Veer-physics op de buig-waarde; MediaPipe voor de hand | Steel buigen (morph target) |
 | Wegwrijven of wegblazen | Pluisjes-materiaal | three-particles (GPU compute); snelheid van cursor of hand, of microfoonvolume via de Web Audio API, als kracht | Pluisje als mesh; bol kaal en parachuutje open (morph targets) |
-| Dag & nacht | Circadian, Fireflies at Dusk | `uTimeOfDay` via pijltjes; startwaarde uit `prefers-color-scheme`; bloom-postprocessing voor de neon-gloed | Gele bloem open/dicht (morph target); dag- en nacht-lightmap |
+| Dag & nacht | Circadian, Fireflies at Dusk | `uTimeOfDay` via pijltjes; startwaarde uit `prefers-color-scheme` | Dag- en nacht-lightmap |
 | Ambient geluid | — | Web Audio API: crossfade tussen dag- en nachtmuziek, windgeruis volgt de windsterkte | — |
 | Pluizenbol opbouwen | — | Gulden-hoekverdeling in code, instancing van het pluisje | Pluisje, pluizenbol |
-| Grond en blaadjes | — | tsl-textures | Bladrozet |
+| Grond | — | tsl-textures | — |
 | Basis | — | Vite, `three/webgpu`, GLTFLoader, GitHub + GitHub Pages of Vercel | Export als GLB met morph targets |
 
 ---
 
 ### Waarom dit meer is dan het minimum
 
-- Eén samenhangende wereld: de dag/nacht-stand stuurt tegelijk de lucht, de lightmaps, de pluisjes, de bloemen en de muziek
+- Eén samenhangende wereld: de dag/nacht-stand stuurt tegelijk de lucht, het licht, de grond, de pluisjes, de vuurvliegjes en de muziek
 - Twee niveaus die op elkaar inwerken: wat je in het detail doet, zie je terug in de wei
 - Realisme als ontwerpkeuze: veer-physics, trage luchtweerstand en morph targets in plaats van harde animaties
 - Blender waar het zinvol is: geen groot decor, maar onderdelen met morph targets die live door de bezoeker worden aangestuurd; de wiskundige verdeling gebeurt in code
@@ -129,6 +128,7 @@ Bij ✅ staat hoe het werkt, bij 🟡 en ❌ wat er nog moet gebeuren.
 | --- | --- | --- |
 | Bloemen op een glooiende wei | ✅ | ±4000 bloemen met `InstancedMesh` (één draw call per onderdeel), verspreid met een "jittered grid": een rooster met per vakje één bloem op een willekeurige plek, naar de rand toe ijler. De grond golft volgens `heightAt` (`terrain.js`). Code: `src/world/Meadow.js`. |
 | Grond | ✅ | Procedurele graskleur uit tsl-textures (`camouflage`) in twee lagen: plekken van ±10 m en plukjes van ±1 m, 's nachts blauwgroen. Code: `src/world/Ground.js`. |
+| Extra: schaduwen van de bloemen op de grond | ✅ | Berekend in plaats van met een shadow map (die zou de hele wei een tweede keer tekenen). Een compute shader maakt elke frame een schaduwkaart van de wei van bovenaf (512×512 vakjes, altijd evenveel werk, hoe groot je scherm ook is). Per vakje: vanaf de grond naar de zon kijken en nagaan of die straal een bol (zachte schaduw), een steel (smalle streep) of een voet (donker plekje) raakt. Alleen de bloemen in de 3×3 vakjes van het plaatsingsrooster worden nagekeken, niet alle 4000. De bollen bewegen met wind en physics, dus de schaduwen ook; 's nachts en bij een lage zon zwakker. Kost gemeten: ±1–2 ms. Code: `src/world/FlowerShadows.js`. |
 | Windvlagen als golven | ✅ | `windAt` (`src/world/wind.js`) is ruis (noise) die in de windrichting over de wei schuift. Elke steel leest de wind op zijn eigen plek, dus de bloemen buigen na elkaar mee, niet allemaal tegelijk. |
 | Muis over de wei | ✅ | Bewust zo gelaten: de muis duwt de bloemen waar hij overkomt weg, en ze veren terug (veer-physics). De wind stuur je met de windroos en de microfoon. |
 | Windroos: wind uit een bepaald punt | ✅ | Linksonder staat een windroos: sleep het bolletje rond de ring en de wind komt uit die hoek (de pijl toont waar hij naartoe waait). De roos draait mee met de camera zoals een kompas, dus "boven" op de roos is altijd recht voor je in de wei. De wind draait vloeiend naar de nieuwe richting, en de golven verspringen niet: ze schuiven op met een opgetelde verplaatsing (`uWindOffset`). Code: `src/interaction/WindRose.js`, `updateWind` in `src/state/worldState.js`, `src/world/wind.js`. |
@@ -150,8 +150,8 @@ Bij ✅ staat hoe het werkt, bij 🟡 en ❌ wat er nog moet gebeuren.
 | Muis of hand: de steel buigt weg | ✅ | Muis en hand zijn elk een straal (ray) vanaf de camera. Een compute shader (`src/world/FlowerPhysics.js`) berekent voor elke bloem de duw van die stralen. De steel buigt met de shape key "Buigen" uit Blender, per bloem gedraaid naar de duwrichting. |
 | Hand via de webcam | ✅ | MediaPipe Hand Landmarker in een Web Worker (`handWorker.js`). Het midden van de handpalm stuurt de hand-aanwijzer; tussen twee detecties voorspelt de app waar de hand nu is, uit haar snelheid. Code: `src/interaction/CameraVision.js`. |
 | De steel deint na als een veer | ✅ | Per bloem een gedempte veer (a = −k·x − c·v + F) in de compute shader, met per bloem een iets andere stijfheid, zodat ze niet in hetzelfde ritme wiegen. |
-| Pluisjes in de buurt wiegen mee | 🟡 | De pluisjes bewegen mee met de bol, maar niet elk apart. Nog te doen: pluisjes dicht bij de muis of hand een kleine eigen beweging geven. |
-| 's Nachts lichten pluisjes bij je cursor of hand op | ❌ | Nog te doen: de "hover-gloed", een TSL-shader die de gloed van de pluisjes verhoogt naargelang hun afstand tot de straal van de muis of hand. |
+| Pluisjes bewegen mee met de bol | ✅ | Elk pluisje staat op de top van de gebogen steel (dezelfde wind en physics als de steel), dus de hele bol beweegt als één geheel mee. |
+| 's Nachts lichten pluisjes bij je cursor of hand op | ➖ | Bewust weggelaten. |
 
 ### 4. Pluisjes wegwrijven of wegblazen
 
@@ -172,9 +172,8 @@ Bij ✅ staat hoe het werkt, bij 🟡 en ❌ wat er nog moet gebeuren.
 | Extra: licht in de kamer stuurt dag en nacht | ✅ | Lichtmeter op de GPU (compute shaders): helderheid én contrast van het webcambeeld. Donker of vlak (bedekte camera) = nacht; het contrast is nodig omdat de webcam een donker beeld zelf weer oplicht. Een pijltje heeft 20 s voorrang. Nog af te stellen op je eigen camera. |
 | Lucht van dag naar nacht | ✅ | Circadian (Shadertoy) geport naar TSL (`src/world/Sky.js`). Het dure deel rekent op 1/16 van de pixels in een render target. |
 | Overdag: zachtwitte pluisjes | ✅ | Pluisjeskleur mengt van blauwig ('s nachts) naar wit (overdag) via `uTimeOfDay`. |
-| Overdag: gele bloemen open | ❌ | Nog te doen: een gele bloem modelleren in Blender met een shape key "open/dicht", in de wei zetten met instancing, en de shape key laten sturen door `uTimeOfDay`. |
-| 's Nachts: neon-randen | 🟡 | De pluisjes hebben 's nachts een cyaan gloed (emissive). Nog te doen: bloom (post-processing) voor de echte neon-gloed. |
-| 's Nachts: pluisjes knipperen als vuurvliegjes | 🟡 | "Fireflies at Dusk" (Shadertoy) is geport als 300 aparte vuurvliegjes boven de wei: knipperritme, gloed en zweven uit het origineel, en ze schrikken op van muis en hand (physics). Nog te doen (optioneel): de pluisjes zelf ook laten knipperen met hetzelfde ritme. |
+| 's Nachts: vuurvliegjes | ✅ | "Fireflies at Dusk" (Shadertoy) geport naar TSL als 300 vuurvliegjes boven de wei: het knipperritme (snel aan, traag uit, soms dubbel), de gloed en het zweven komen uit het origineel. Ze verschijnen bij schemering en schrikken op van muis en hand: zacht omhoog en dan weer neer (physics). Code: `src/world/Fireflies.js`. |
+| Gele bloemen, neon-randen, knipperende pluisjes | ➖ | Bewust weggelaten. |
 
 ### 6. Ambient geluid
 
@@ -198,13 +197,13 @@ Bij ✅ staat hoe het werkt, bij 🟡 en ❌ wat er nog moet gebeuren.
 
 | Onderdeel | Gepland | Status | Hoe het werkt / wat er nog moet |
 | --- | --- | --- | --- |
-| Interactie, meer dan rondkijken | 7 | ✅ | Muis, klikken, hover, wrijven, handtracking, blazen, pijltjes, dark mode, en extra: het kamerlicht. Nog: de muis-windvlaag. |
+| Interactie, meer dan rondkijken | 7 | ✅ | Muis, klikken, hover, wrijven, handtracking, blazen (wind en pluisjes), windroos, pijltjes, dark mode, en extra: het kamerlicht. |
 | Physics | 2 | ✅ 3 | Veer-physics van de stelen, de vlucht van de pluisjes en het opschrikken van de vuurvliegjes: alle drie compute shaders op de GPU. |
-| Meerdere shaders | 2 + 3 eigen | ✅ | 2 Shadertoy-ports. Eigen TSL: windveld, pluisjes-materiaal, impostor, scherptediepte, lichtmeter. Nog: hover-gloed. |
+| Meerdere shaders | 2 + 2 eigen | ✅ | 2 Shadertoy-ports. Eigen TSL: windveld, pluisjes-materiaal, en extra: impostor, scherptediepte, lichtmeter, grond. |
 | Extra WebGPU-libraries | 2 | 🟡 1 | tsl-textures voor de grond. three-particles is niet gebruikt: de pluisjesvlucht is zelf geschreven met compute shaders. |
 | Extra library (niet WebGPU) | 1 | ✅ | MediaPipe Hand Landmarker. |
-| Eigen Blender-modellen | 5 | 🟡 3 | Steel, pluizenbol en pluisje (`blender/puffballSimple.blend` → `public/models/puffballSimple.glb`). Nog te doen: bladrozet en gele bloem. |
-| Shape keys vanuit de code | 4 | 🟡 1 | "Buigen" op de steel, gestuurd door wind en physics. "Bol kaal" en "parachuutje open" werken, maar in code in plaats van met een shape key. Nog te doen: gele bloem open/dicht, en eventueel "Open" op het pluisje. |
+| Eigen Blender-modellen | 3 | ✅ 3 | Steel, pluizenbol en pluisje (`blender/puffballSimple.blend` → `public/models/puffballSimple.glb`). De bladrozet is bewust weggelaten. |
+| Shape keys vanuit de code | 3 | 🟡 1 | "Buigen" op de steel, gestuurd door wind en physics. "Bol kaal" en "parachuutje open" werken, maar in code in plaats van met een shape key. Nog te doen (optioneel): "Open" op het pluisje. |
 | Baking | 2 | 🟡 1 | Ambient occlusion gebakken in Blender voor de steel en de bol (`aoMap`). Nog te doen: detailtextuur, en de dag- en nacht-lightmap voor de grond. |
 | Procedureel in code | 2 | ✅ | Pluisjes op de bol volgens de gulden hoek (Fibonacci-spiraal); bloemen verspreid met een jittered grid. |
 | Audio | 2 | ❌ | Muziek en windgeruis, zie deel 6. |

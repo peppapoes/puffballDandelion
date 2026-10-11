@@ -8,6 +8,7 @@ import {
 } from './state/worldState.js';
 import { Sky } from './world/Sky.js';
 import { createGround } from './world/Ground.js';
+import { FlowerShadows } from './world/FlowerShadows.js';
 import { Meadow } from './world/Meadow.js';
 import { FlowerPhysics } from './world/FlowerPhysics.js';
 import { Fireflies } from './world/Fireflies.js';
@@ -50,8 +51,10 @@ export class App {
     this.resizeSky();
     this.scene.fogNode = fog(uHorizonColor, rangeFogFactor(FOG_NEAR, FOG_FAR));
     this.createLights();
-    this.scene.add(createGround());
     this.meadow = await Meadow.create(this.renderer); // laadt het Blender-model (public/models/puffballSimple.glb)
+    // Schaduwen van de bloemen op de grond: een compute shader maakt er elke frame een kaart van
+    this.flowerShadows = new FlowerShadows(this.renderer, this.meadow);
+    this.scene.add(createGround(this.flowerShadows));
     this.scene.add(this.meadow.group);
 
     // Klik op een bloem: vloeiend inzoomen; Escape of klik ernaast: terug naar de wei
@@ -138,6 +141,7 @@ export class App {
     for (const pointer of this.pointers) pointer.update(this.camera);
     this.flowerPhysics.update(delta, this.pointers);
     this.meadow.update(delta, this.camera); // LOD: dichtste bollen krijgen echte pluisjes
+    this.flowerShadows.update(); // na meadow.update: de bollen staan dan op hun plek van deze frame
     this.fireflies.update(delta, this.camera); // physics: opschrikken en terugdalen
     this.microphone.update(delta);
     // Blazen = wind: hoe harder, hoe harder de wind (in de hele wei); richting uit de windroos

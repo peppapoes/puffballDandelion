@@ -48,10 +48,17 @@ export class Pointer {
   }
 }
 
-/** Muis als aanwijzer: pixels op het canvas → NDC */
+/**
+ * Muis als aanwijzer: pixels op het canvas → NDC.
+ * De plek van het canvas wordt onthouden en alleen opnieuw opgevraagd als het venster van
+ * grootte verandert: getBoundingClientRect bij elke muisbeweging (60–120 per seconde) dwingt
+ * de browser telkens de opmaak van de pagina opnieuw te berekenen.
+ */
 export function attachMouse(pointer, canvas) {
+  let rect = canvas.getBoundingClientRect();
+  window.addEventListener('resize', () => (rect = canvas.getBoundingClientRect()));
+
   canvas.addEventListener('pointermove', (event) => {
-    const rect = canvas.getBoundingClientRect();
     pointer.moveTo(
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
       -((event.clientY - rect.top) / rect.height) * 2 + 1

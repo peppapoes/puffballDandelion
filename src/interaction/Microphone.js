@@ -101,7 +101,9 @@ export class Microphone {
     const speed = target > this.level ? ATTACK : RELEASE;
     this.level += (target - this.level) * (1 - Math.exp(-speed * delta));
 
-    this.meterBar.style.width = `${Math.round(this.level * 100)}%`;
+    // Alleen als het balkje echt verandert (elke aanpassing laat de browser de opmaak opnieuw nakijken)
+    const width = `${Math.round(this.level * 100)}%`;
+    if (width !== this.meterBar.style.width) this.meterBar.style.width = width;
     this.perf?.info('mic', `volume ${this.loudness.toFixed(3)}  ruis ${this.noisiness.toFixed(2)}  blazen ${this.level.toFixed(2)}`);
   }
 }

@@ -77,9 +77,19 @@ export class WindRose {
     setWindDirection(-fromX, -fromZ);
   }
 
-  /** Elke frame: meedraaien met de camera, pijl en bolletje bijwerken */
+  /**
+   * Elke frame: meedraaien met de camera, pijl en bolletje bijwerken. Alleen als er iets
+   * veranderd is: elke aanpassing aan de pagina laat de browser de opmaak opnieuw nakijken,
+   * en dat vertraagt vooral het verwerken van muisbewegingen (Pointer.js).
+   */
   update() {
     this.azimuth = this.controls.getAzimuthalAngle();
+    const { x, y: z } = getWindTarget();
+    const percent = Math.round((uWindStrength.value / STRENGTH_FULL) * 100);
+    const state = `${this.azimuth.toFixed(3)} ${x.toFixed(3)} ${z.toFixed(3)} ${percent}`;
+    if (state === this.lastState) return;
+    this.lastState = state;
+
     const degrees = (this.azimuth * 180) / Math.PI;
     this.compass.setAttribute('transform', `rotate(${degrees})`);
     // Letters rechtop houden
@@ -87,8 +97,7 @@ export class WindRose {
       label.setAttribute('transform', `rotate(${-degrees} ${label.getAttribute('x')} ${label.getAttribute('y')})`);
     }
 
-    const { x, y: z } = getWindTarget();
-    const strength = uWindStrength.value / STRENGTH_FULL;
+    const strength = percent / 100;
     // Bolletje op de ring waar de wind vandaan komt, pijl erdoor naar de overkant
     this.handle.setAttribute('cx', -x * RADIUS);
     this.handle.setAttribute('cy', -z * RADIUS);
@@ -97,7 +106,7 @@ export class WindRose {
     this.arrow.setAttribute('x2', x * (RADIUS - 14));
     this.arrow.setAttribute('y2', z * (RADIUS - 14));
     this.arrow.style.strokeWidth = 2 + strength * 5;
-    this.label.textContent = `wind ${Math.round(strength * 100)}%`;
+    this.label.textContent = `wind ${percent}%`;
   }
 }
 

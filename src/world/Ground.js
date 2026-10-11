@@ -28,9 +28,9 @@ const NIGHT_TINT = color('#2f5f58').div(color('#5f8f3e'));
  * (extra WebGPU-library: texturen in TSL, per pixel berekend uit ruis, zonder afbeeldingen).
  * camouflage geeft vlekken in vier tinten; twee lagen (grote plekken en kleine plukjes)
  * door elkaar, zodat het zowel van ver als van dichtbij natuurlijk oogt.
- * Later eventueel: gebakken dag/nacht-lightmap uit Blender.
+ * Plus de schaduwen van de paardenbloemen (FlowerShadows.js).
  */
-export function createGround() {
+export function createGround(shadows) {
   const geometry = new THREE.PlaneGeometry(SIZE, SIZE, SEGMENTS, SEGMENTS);
   geometry.rotateX(-Math.PI / 2);
 
@@ -44,11 +44,13 @@ export function createGround() {
   const large = camouflage({ ...MEADOW, position: positionGeometry, scale: PATCHES_LARGE, seed: 0 });
   const small = camouflage({ ...MEADOW, position: positionGeometry, scale: PATCHES_SMALL, seed: 7 });
   const day = mix(large, small, SMALL_AMOUNT);
+  const grass = mix(day.mul(NIGHT_TINT), day, uTimeOfDay);
 
   const material = new THREE.MeshStandardNodeMaterial({ roughness: 1 });
-  material.colorNode = mix(day.mul(NIGHT_TINT), day, uTimeOfDay);
+  material.colorNode = grass.mul(shadows.lightAt(positionGeometry.xz));
 
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.receiveShadow = true;
+  mesh.name = 'ground';
+  mesh.userData.colorWithoutShadows = grass; // om de kost van de schaduwen te meten (console)
   return mesh;
 }

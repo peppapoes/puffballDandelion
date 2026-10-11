@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import {
-  Fn, color, mix, vec2, vec3, float, cross, select, fract, uniform, uv, texture, attribute, length,
+  Fn, color, mix, vec2, vec3, vec4, float, cross, select, fract, uniform, uv, texture, attribute, length,
   positionLocal, positionGeometry, normalGeometry, normalLocal, instancedArray, instanceIndex, int,
   If, Loop, varyingProperty,
 } from 'three/tsl';
@@ -12,6 +12,9 @@ import { loadPuffballModel } from './models.js';
 const MODEL_SCALE = 0.6; // het Blender-model verkleind voor de wei
 const MEADOW_RADIUS = 36; // straal van de wei (m)
 const FLOWER_SPACING = 1.3; // gemiddelde afstand tussen bloemen (m)
+// Plaatsingsrooster: GRID_CELLS × GRID_CELLS vakjes van FLOWER_SPACING, vanaf -MEADOW_RADIUS
+export const GRID_CELLS = Math.floor((2 * MEADOW_RADIUS) / FLOWER_SPACING) + 1;
+export const GRID = { cells: GRID_CELLS, spacing: FLOWER_SPACING, origin: -MEADOW_RADIUS };
 const EDGE_FADE = 8; // laatste meters naar de rand: steeds ijler, geen harde grens
 const SCALE_MIN = 0.8; // bloemen verschillen ±20% in grootte
 const SCALE_MAX = 1.2;
@@ -57,20 +60,22 @@ export class Meadow {
     this.puffRadius = this.headRadius; // kader van de gebakken foto en grootte van de verre bollen
 
     // Bloemen plaatsen, elk met een eigen grootte en draaiing
-    this.flowers = scatterFlowers().map((position) => {
+    this.flowers = scatterFlowers().map(({ position, cell }) => {
       const scale = SCALE_MIN + Math.random() * (SCALE_MAX - SCALE_MIN);
       const rotation = Math.random() * Math.PI * 2;
       // Midden van de bol t.o.v. de voet: uit Blender, gedraaid en geschaald zoals deze bloem
       const headOffset = model.headCenter.clone().applyAxisAngle(THREE.Object3D.DEFAULT_UP, rotation).multiplyScalar(scale);
-      return { position, scale, rotation, headOffset };
+      return { position, scale, rotation, headOffset, cell };
     });
     const count = this.flowers.length;
+    this.renderer = renderer;
 
     // Inzoomen (FlowerFocus): welke bloem (-1 = geen), en hoe sterk ze stil gehouden wordt (0..1, vloeiend)
     this.uFocusIndex = uniform(-1);
     this.uFocusHold = uniform(0);
 
     this.createBuffers();
+    this.createShadowData();
     this.createStems();
     this.impostorTexture = this.bakeImpostor(renderer);
     this.createFarPuffs();
@@ -175,6 +180,27 @@ export class Meadow {
   /** Midden van de bol van bloem i, op de top van de gebogen steel */
   headPosition(i) {
     return this.flowerBuffer.element(i).xyz.add(this.headBuffer.element(i).xyz).add(this.topDisplacement(i));
+  }
+
+  // --- Gegevens voor de schaduwen op de grond (FlowerShadows.js) ---
+
+  /**
+   * - shadowGrid: per vakje van het plaatsingsrooster welke bloem erin staat (-1 = leeg),
+   *   zodat de schaduwkaart per vakje alleen de bloemen in de buurt moet nakijken
+   * - headWorld: waar elke bol nu hangt (met wind en physics) + straal; elke frame
+   *   één keer berekend door een compute shader, in plaats van per vakje van de schaduwkaart
+   */
+  createShadowData() {
+    const grid = new Float32Array(GRID_CELLS * GRID_CELLS).fill(-1);
+    this.flowers.forEach((flower, i) => (grid[flower.cell] = i));
+    this.shadowGrid = instancedArray(grid, 'float');
+    this.headWorld = instancedArray(this.flowers.length, 'vec4');
+
+    this.headCompute = Fn(() => {
+      const i = instanceIndex;
+      const radius = float(this.headRadius).mul(this.flowerBuffer.element(i).w);
+      this.headWorld.element(i).assign(vec4(this.headPosition(i), radius));
+    })().compute(this.flowers.length);
   }
 
   // --- Stelen ---
@@ -366,6 +392,9 @@ export class Meadow {
   // --- LOD: de dichtste bollen in beeld krijgen echte pluisjes ---
 
   update(delta, camera) {
+    // Waar hangen de bollen nu? Voor de schaduwen op de grond (na de physics van deze frame)
+    this.renderer.compute(this.headCompute);
+
     // Billboards van de verre bollen naar de camera draaien
     this.cameraRight.value.setFromMatrixColumn(camera.matrixWorld, 0);
     this.cameraUp.value.setFromMatrixColumn(camera.matrixWorld, 1);
@@ -420,11 +449,13 @@ export function rotate(v, q) {
  * gelijkmatig verdeeld en toch natuurlijk. Naar de rand toe steeds ijler.
  */
 function scatterFlowers() {
-  const positions = [];
+  const flowers = [];
   const fadeStart = MEADOW_RADIUS - EDGE_FADE;
 
-  for (let gx = -MEADOW_RADIUS; gx <= MEADOW_RADIUS; gx += FLOWER_SPACING) {
-    for (let gz = -MEADOW_RADIUS; gz <= MEADOW_RADIUS; gz += FLOWER_SPACING) {
+  for (let iz = 0; iz < GRID_CELLS; iz++) {
+    for (let ix = 0; ix < GRID_CELLS; ix++) {
+      const gx = -MEADOW_RADIUS + ix * FLOWER_SPACING;
+      const gz = -MEADOW_RADIUS + iz * FLOWER_SPACING;
       // Willekeurig verschuiven binnen het vakje (niet helemaal tot de rand: geen botsingen)
       const x = gx + (Math.random() - 0.5) * FLOWER_SPACING * 0.9;
       const z = gz + (Math.random() - 0.5) * FLOWER_SPACING * 0.9;
@@ -436,9 +467,10 @@ function scatterFlowers() {
       const edge = (r - fadeStart) / EDGE_FADE;
       if (edge > 0 && Math.random() < edge) continue;
 
-      positions.push(new THREE.Vector3(x, heightAt(x, z), z));
+      // cell: in welk vakje van het rooster (voor de schaduwen op de grond, FlowerShadows.js)
+      flowers.push({ position: new THREE.Vector3(x, heightAt(x, z), z), cell: iz * GRID_CELLS + ix });
     }
   }
 
-  return positions;
+  return flowers;
 }
