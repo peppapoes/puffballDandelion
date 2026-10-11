@@ -35,7 +35,7 @@ const HAND_TOUCH_MARGIN = 1.6;
 
 /**
  * Houdt de hele installatie samen: renderer, scène, camera en de render-loop.
- * Nieuwe systemen (audio, interactie, pluisjes, ...) worden hier aangemaakt
+ * Nieuwe systemen (interactie, pluisjes, ...) worden hier aangemaakt
  * en krijgen elke frame update(delta).
  */
 export class App {
@@ -88,9 +88,8 @@ export class App {
     this.renderer.setAnimationLoop((timestamp) => this.update(timestamp));
   }
 
-  /** Wordt opgeroepen na de klik op het startscherm (gebruikersgebaar: audio mag starten). */
+  /** Wordt opgeroepen na de klik op het startscherm: de knoppen verschijnen. */
   start() {
-    // TODO: audio starten (ambient muziek + windgeruis)
     this.cameraVision.show();
     this.microphone.show();
     this.windRose.show();

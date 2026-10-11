@@ -2,7 +2,7 @@ import { Vector2, Vector3, Color, MathUtils } from 'three/webgpu';
 import { uniform } from 'three/tsl';
 
 /**
- * Gedeelde toestand van de wereld. Lucht, bloemen, pluisjes en audio lezen
+ * Gedeelde toestand van de wereld. Lucht, grond, bloemen, pluisjes en vuurvliegjes lezen
  * allemaal dezelfde waarden, zodat dag/nacht en wind één geheel vormen.
  *
  * De TSL-uniforms (uTimeOfDay, uWindStrength, ...) gaan rechtstreeks naar de GPU;

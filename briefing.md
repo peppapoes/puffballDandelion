@@ -85,7 +85,7 @@ Wat je in het detail doet, zie je terug in het overzicht: weggeblazen pluisjes w
 | Physics | 2 | **Veer-physics** voor de stelen (natrillen en uitdeinen). **Pluisjes-vlucht** met zwaartekracht, luchtweerstand, wind en turbulentie. |
 | Eigen Blender-modellen | 3 | Pluisje, steel, pluizenbol. Losse onderdelen die de code combineert en honderden keren hergebruikt. |
 | Morph targets (shape keys) | 3 | **Steel buigen:** gestuurd door wind en hover. **Bol kaal:** gestuurd door hoeveel pluisjes weg zijn. **Parachuutje open:** gestuurd door de vlucht. |
-| Baking | 2 | Ambient occlusion en detailtextuur gebakken op de bloemonderdelen; dag- en nacht-lightmap voor de grond van de wei. |
+| Baking | 1 | Ambient occlusion gebakken op de steel en de bol. |
 | Procedureel in code | 2 | Pluisjes op de bol geplaatst volgens de gulden hoek (Fibonacci-spiraal, zoals de pitten van een zonnebloem); bloemen verspreid over de wei. |
 | Interactie | 7 | Muis over de wei, klikken om in te zoomen, hover, wrijven, handtracking, blazen, pijltjes; daarnaast de dark-mode-instelling |
 | Audio | 2 | Ambient muziek (dag en nacht) en windgeruis, rechtenvrij met bronvermelding |
@@ -98,7 +98,7 @@ Wat je in het detail doet, zie je terug in het overzicht: weggeblazen pluisjes w
 | Inzoomen | — | Raycasting om de bloem te kiezen; vloeiende camera-overgang | — |
 | De bloem voelt je | — | Veer-physics op de buig-waarde; MediaPipe voor de hand | Steel buigen (morph target) |
 | Wegwrijven of wegblazen | Pluisjes-materiaal | three-particles (GPU compute); snelheid van cursor of hand, of microfoonvolume via de Web Audio API, als kracht | Pluisje als mesh; bol kaal en parachuutje open (morph targets) |
-| Dag & nacht | Circadian, Fireflies at Dusk | `uTimeOfDay` via pijltjes; startwaarde uit `prefers-color-scheme` | Dag- en nacht-lightmap |
+| Dag & nacht | Circadian, Fireflies at Dusk | `uTimeOfDay` via pijltjes; startwaarde uit `prefers-color-scheme` | — |
 | Ambient geluid | — | Web Audio API: crossfade tussen dag- en nachtmuziek, windgeruis volgt de windsterkte | — |
 | Pluizenbol opbouwen | — | Gulden-hoekverdeling in code, instancing van het pluisje | Pluisje, pluizenbol |
 | Grond | — | tsl-textures | — |
@@ -159,8 +159,8 @@ Bij ✅ staat hoe het werkt, bij 🟡 en ❌ wat er nog moet gebeuren.
 | --- | --- | --- |
 | Wrijf over de bol: hoe sneller, hoe meer | ✅ | Een compute shader (`src/world/Seeds.js`) geeft elk pluisje van de gekozen bloem per seconde een kans om los te komen. Die kans groeit met de snelheid van de muis of hand ter hoogte van het pluisje (vanaf 0,6 m/s). |
 | Blaas in de microfoon: hoe harder, hoe meer | ✅ | Web Audio API (`src/interaction/Microphone.js`): alleen geluid dat luid én ruisachtig is, telt als blazen (spectrale vlakheid uit de FFT), dus praten of muziek blaast niets weg. De pluisjes aan jouw kant gaan eerst. Een blaasmeter onder de microfoonknop toont of hij je hoort. |
-| Parachuutje opent, traag wegdwarrelen | ✅ | Een tweede compute shader doet de vlucht: meedrijven met dezelfde wind als de wei, traag dalen met luchtweerstand, fladderen, op de grond blijven liggen, na 20 s verdwijnen. Een los pluisje draait rechtop en de pluis waaiert open (in code, niet met een shape key). |
-| De bol wordt kaler | ✅ | Per pluisje een toestand (vast of los) in een GPU-buffer. Tot 64 kale bloemen worden onthouden, dus een kale bol blijft kaal tussen de andere, ook na het uitzoomen; van ver wordt de foto van die bol doorzichtiger. |
+| Parachuutje opent, traag wegdwarrelen | ✅ | Een tweede compute shader doet de vlucht: meedrijven met dezelfde wind als de wei, traag dalen met luchtweerstand, fladderen, op de grond blijven liggen, na 20 s verdwijnen. Een los pluisje draait rechtop en zijn parachuutje gaat open met de shape key "Open" uit Blender (van 0 naar 1 in de eerste 0,8 s van de vlucht). |
+| De bol wordt kaler | ✅ | Per pluisje een toestand (vast of los) in een GPU-buffer. Tot 64 kale bloemen worden onthouden, dus een kale bol blijft kaal tussen de andere, ook na het uitzoomen; van ver wordt de foto van die bol doorzichtiger. De bol zelf krimpt met de shape key "Kaal" uit Blender, naargelang hoeveel pluisjes weg zijn. |
 | Nieuwe pluisjes groeien aan | ➖ | Bewust weggelaten. |
 
 ### 5. Dag & nacht
@@ -179,9 +179,9 @@ Bij ✅ staat hoe het werkt, bij 🟡 en ❌ wat er nog moet gebeuren.
 
 | Onderdeel | Status | Hoe het werkt / wat er nog moet |
 | --- | --- | --- |
-| Ambient muziek, dag en nacht | ❌ | Nog te doen: rechtenvrije muziek kiezen (dag en nacht), in `public/audio/` zetten, en met de Web Audio API laten overvloeien volgens `uTimeOfDay`. Credits in de README. |
-| Windgeruis dat luider wordt bij vlagen | ❌ | Nog te doen: een windgeruis-loop waarvan het volume de windsterkte volgt. |
-| Startscherm "Klik om te beginnen" | ✅ | Bestaat al; de klik geeft de browser toestemming voor geluid. |
+| Ambient muziek, dag en nacht | ➖ | Bewust weggelaten. |
+| Windgeruis dat luider wordt bij vlagen | ➖ | Bewust weggelaten. |
+| Startscherm "Klik om te beginnen" | ✅ | Het Blender-model en de shaders laden al terwijl het startscherm zichtbaar is; na de klik verschijnen de knoppen (camera, microfoon, windroos). |
 
 ### Opdracht-eisen
 
@@ -191,19 +191,19 @@ Bij ✅ staat hoe het werkt, bij 🟡 en ❌ wat er nog moet gebeuren.
 | Shader reageert op interactie | ✅ | De zonnestand volgt de pijltjes en het kamerlicht; de kijkrichting volgt de camera. Nog niet: "windsterkte kleurt de wolken". |
 | Werkende URL | 🟡 | Online via GitHub Pages, maar alleen wat gepusht is. Nog te doen: het laatste werk committen en pushen. |
 | Broncode zonder `node_modules` | ✅ | `node_modules/` staat in `.gitignore`. Bij het indienen zelf een zip maken zonder die map. |
-| README met de shader-URL's | 🟡 | Shaders, makers en libraries staan erin. Nog te doen: de muziekcredits (TODO). |
+| README met de shader-URL's | ✅ | Beide Shadertoy-shaders (URL, maker, licentie, aanpassingen in de port) en de libraries staan erin. |
 
 ### Extra punten (inhoud in één oogopslag)
 
 | Onderdeel | Gepland | Status | Hoe het werkt / wat er nog moet |
 | --- | --- | --- | --- |
-| Interactie, meer dan rondkijken | 7 | ✅ | Muis, klikken, hover, wrijven, handtracking, blazen (wind en pluisjes), windroos, pijltjes, dark mode, en extra: het kamerlicht. |
+| Interactie, meer dan rondkijken | 7 | ✅ | Muis over de wei, klikken, wrijven, handtracking, blazen (wind en pluisjes), windroos, pijltjes, dark mode, en extra: het kamerlicht. |
 | Physics | 2 | ✅ 3 | Veer-physics van de stelen, de vlucht van de pluisjes en het opschrikken van de vuurvliegjes: alle drie compute shaders op de GPU. |
 | Meerdere shaders | 2 + 2 eigen | ✅ | 2 Shadertoy-ports. Eigen TSL: windveld, pluisjes-materiaal, en extra: impostor, scherptediepte, lichtmeter, grond. |
 | Extra WebGPU-libraries | 2 | 🟡 1 | tsl-textures voor de grond. three-particles is niet gebruikt: de pluisjesvlucht is zelf geschreven met compute shaders. |
 | Extra library (niet WebGPU) | 1 | ✅ | MediaPipe Hand Landmarker. |
 | Eigen Blender-modellen | 3 | ✅ 3 | Steel, pluizenbol en pluisje (`blender/puffballSimple.blend` → `public/models/puffballSimple.glb`). De bladrozet is bewust weggelaten. |
-| Shape keys vanuit de code | 3 | 🟡 1 | "Buigen" op de steel, gestuurd door wind en physics. "Bol kaal" en "parachuutje open" werken, maar in code in plaats van met een shape key. Nog te doen (optioneel): "Open" op het pluisje. |
-| Baking | 2 | 🟡 1 | Ambient occlusion gebakken in Blender voor de steel en de bol (`aoMap`). Nog te doen: detailtextuur, en de dag- en nacht-lightmap voor de grond. |
+| Shape keys vanuit de code | 3 | ✅ 3 | Alle drie uit Blender, live gestuurd door de code (als eigen attributen, zodat elke bloem of elk pluisje een eigen waarde heeft): **"Buigen"** op de steel (wind en physics, per bloem gedraaid naar de duwrichting), **"Open"** op het pluisje (de vlucht), **"Kaal"** op de bol (hoeveel pluisjes weg zijn). Code: `takeShapeKey` in `src/world/models.js`, `Meadow.js`, `Seeds.js`. |
+| Baking | 1 | ✅ 1 | Ambient occlusion gebakken in Blender voor de steel en de bol (`aoMap`). De lightmap voor de grond en de detailtextuur zijn bewust weggelaten: de grond wordt in code gemaakt en heeft live schaduwen die meebewegen met wind en zon. |
 | Procedureel in code | 2 | ✅ | Pluisjes op de bol volgens de gulden hoek (Fibonacci-spiraal); bloemen verspreid met een jittered grid. |
-| Audio | 2 | ❌ | Muziek en windgeruis, zie deel 6. |
+| Audio | 2 | ➖ | Bewust weggelaten (geen extra punten). De microfoon wordt wel gebruikt als sensor: blazen = wind. |

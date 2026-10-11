@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, If, float, vec2, vec3, vec4, int, uniform, instancedArray, instanceIndex,
-  positionGeometry, normalGeometry, normalLocal, time,
+  positionGeometry, normalGeometry, normalLocal, time, attribute,
   sin, cos, fract, dot, length, clamp, smoothstep, select, normalize, mix, max, min, exp, mod,
 } from 'three/tsl';
 import { SEEDS_PER_HEAD, PLUCK_SLOTS, rotate } from './Meadow.js';
@@ -21,9 +21,7 @@ const GENERATIONS = 4; // vliegplekken per pluisje: zo vaak kan het tegelijk ond
 const POOL = SEEDS_PER_HEAD * GENERATIONS;
 const LIFETIME = 20; // seconden in de lucht, daarna weg
 const SHRINK_TIME = 2; // laatste seconden: krimpen tot niets (zacht verdwijnen)
-const OPEN_TIME = 0.8; // seconden om rechtop te draaien en het parachuutje te openen
-const OPEN_FROM = 0.7; // breedte van de pluis op de bol ...
-const OPEN_TO = 1.15; // ... en open in de lucht
+const OPEN_TIME = 0.8; // seconden om rechtop te draaien en het parachuutje te openen (shape key "Open" 0 → 1)
 const SPIN = 0.6; // rad/s: traag ronddraaien
 const FALL_SPEED = 0.12; // m/s: heel traag dalen (parachute)
 const WIND_CARRY = 2.5; // m/s per eenheid windkracht: meedrijven met dezelfde wind als de wei
@@ -43,7 +41,7 @@ const MAX_PUSH = 3; // m/s: beginsnelheid begrenzen
  *    (parachute), fladderen en verdwijnen na LIFETIME seconden.
  *
  * Een vliegend pluisje begint precies zoals het op de bol stond, en draait dan rechtop
- * terwijl het parachuutje (de pluis) openwaaiert.
+ * terwijl het parachuutje opengaat: de shape key "Open" uit Blender, van 0 naar 1.
  */
 export class Seeds {
   constructor(renderer, meadow, pointerUniforms) {
@@ -232,11 +230,12 @@ export class Seeds {
       });
       const q = normalize(mix(onHead, vec4(0, 0, 0, 1), open));
 
-      // Parachuutje opent (alleen de pluis wordt breder) en draait traag rond
-      const spread = isPappus ? mix(float(OPEN_FROM), float(OPEN_TO), open) : float(1);
+      // Parachuutje opent met de shape key "Open" uit Blender (alleen de pluis), en draait traag rond
+      const opened = isPappus ? positionGeometry.add(attribute('openPosition', 'vec3').mul(open)) : positionGeometry;
+      const openedNormal = isPappus ? normalGeometry.add(attribute('openNormal', 'vec3').mul(open)).normalize() : normalGeometry;
       const angle = age.mul(SPIN);
-      const local = turnY(positionGeometry.mul(vec3(spread, 1, spread)), angle);
-      normalLocal.assign(rotate(turnY(normalGeometry, angle), q));
+      const local = turnY(opened, angle);
+      normalLocal.assign(rotate(turnY(openedNormal, angle), q));
 
       // Zacht verdwijnen aan het einde; niet in gebruik = grootte 0 (onzichtbaar)
       const shrink = smoothstep(LIFETIME, LIFETIME - SHRINK_TIME, age);

@@ -10,7 +10,6 @@ if (import.meta.env.DEV || DEBUG) window.app = app;
 const ready = app.init(document.getElementById('scene'));
 
 // De knop werkt meteen: klik je voor alles geladen is, dan start het zodra het klaar is.
-// De klik geeft ook toestemming voor geluid.
 const startScreen = document.getElementById('start-screen');
 const startButton = document.getElementById('start-button');
 startButton.addEventListener(

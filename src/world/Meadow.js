@@ -177,6 +177,23 @@ export class Meadow {
     return select(own, state.x, float(1));
   }
 
+  /**
+   * Hoeveel pluisjes heeft bol i nog (0..1)? Alleen geteld voor aangeraakte bloemen
+   * (pluckedSlot ≥ 0): de andere 4000 zijn vol en kosten zo niets extra.
+   * Gebruikt door de verre foto (doorzichtiger) en de bol (shape key "Kaal").
+   */
+  seedFullness(i) {
+    const fullness = float(1).toVar();
+    If(this.pluckedSlot.element(i).greaterThanEqual(0), () => {
+      const attached = float(0).toVar();
+      Loop(SEEDS_PER_HEAD, ({ i: k }) => {
+        attached.addAssign(this.seedAttached(i, k));
+      });
+      fullness.assign(attached.div(SEEDS_PER_HEAD));
+    });
+    return fullness;
+  }
+
   /** Midden van de bol van bloem i, op de top van de gebogen steel */
   headPosition(i) {
     return this.flowerBuffer.element(i).xyz.add(this.headBuffer.element(i).xyz).add(this.topDisplacement(i));
@@ -300,15 +317,7 @@ export class Meadow {
       const i = instanceIndex;
       const flower = this.flowerBuffer.element(i);
 
-      // Alleen voor aangeraakte bloemen tellen (de andere 4000 zijn vol en kosten zo niets extra)
-      fullness.assign(1);
-      If(this.pluckedSlot.element(i).greaterThanEqual(0), () => {
-        const attached = float(0).toVar();
-        Loop(SEEDS_PER_HEAD, ({ i: k }) => {
-          attached.addAssign(this.seedAttached(i, k));
-        });
-        fullness.assign(attached.div(SEEDS_PER_HEAD));
-      });
+      fullness.assign(this.seedFullness(i));
       // Dichtbij: verbergen (samendrukken tot een punt), daar staan de echte pluisjes
       const size = float(radius).mul(flower.w).mul(float(1).sub(this.nearFlags.element(i)));
       const corner = this.cameraRight.mul(positionGeometry.x).add(this.cameraUp.mul(positionGeometry.y));
@@ -341,7 +350,11 @@ export class Meadow {
       const slot = this.nearSlots.element(instanceIndex);
       const i = int(slot.max(0));
       const flower = this.flowerBuffer.element(i);
-      const position = this.headPosition(i).add(positionGeometry.mul(flower.w));
+      // Shape key "Kaal" uit Blender: hoe meer pluisjes weg, hoe meer de bol krimpt (0 = vol, 1 = kaal)
+      const bald = float(1).sub(this.seedFullness(i));
+      const shape = positionGeometry.add(attribute('barePosition', 'vec3').mul(bald));
+      normalLocal.assign(normalGeometry.add(attribute('bareNormal', 'vec3').mul(bald)).normalize());
+      const position = this.headPosition(i).add(shape.mul(flower.w));
       return select(slot.greaterThanEqual(0), position, vec3(0)); // lege plek: onzichtbaar
     })();
     this.addMesh(new THREE.InstancedMesh(this.model.receptacleGeometry, receptacle, NEAR_HEADS));

@@ -35,13 +35,14 @@ Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in p
 - Wind (`src/world/wind.js`): ruis die in de windrichting over de wei schuift, zodat vlagen als golven over het veld trekken. Richting via de windroos (`src/interaction/WindRose.js`), kracht via blazen in de microfoon (`updateWind` in `src/state/worldState.js`)
 - Veer-physics van de stelen als compute shader op de GPU (`src/world/FlowerPhysics.js`)
 - Schaduwen van de bloemen op de grond, berekend in plaats van met een shadow map (die zou de hele wei een tweede keer tekenen): een compute shader maakt elke frame een schaduwkaart van de wei van bovenaf (512×512). Per vakje gaat hij na of de straal naar de zon een bol of steel in de buurt raakt (alleen de 3×3 vakjes van het plaatsingsrooster). Ze bewegen mee met wind en physics; 's nachts en bij een lage zon zwakker (`src/world/FlowerShadows.js`)
-- Pluisjes wegwrijven of wegblazen (`src/world/Seeds.js`): twee compute shaders. De eerste geeft elk pluisje van de gekozen bloem een kans om los te komen (wrijfsnelheid van muis/hand, blaaskracht van de microfoon via de Web Audio API in `src/interaction/Microphone.js`: alleen luid én ruisachtig geluid telt als blazen, gemeten met de spectrale vlakheid van het spectrum (FFT), zodat praten of muziek de pluisjes niet wegblaast). De tweede is de physics van de vliegende pluisjes: meedrijven met dezelfde wind als de wei, traag dalen met luchtweerstand (parachute), fladderen, op de grond blijven liggen. Een los pluisje draait rechtop en zijn pluis waaiert open. Tot 64 kale bloemen worden onthouden (welke pluisjes los zijn); van ver wordt de foto van een kale bol doorzichtiger
+- Pluisjes wegwrijven of wegblazen (`src/world/Seeds.js`): twee compute shaders. De eerste geeft elk pluisje van de gekozen bloem een kans om los te komen (wrijfsnelheid van muis/hand, blaaskracht van de microfoon via de Web Audio API in `src/interaction/Microphone.js`: alleen luid én ruisachtig geluid telt als blazen, gemeten met de spectrale vlakheid van het spectrum (FFT), zodat praten of muziek de pluisjes niet wegblaast). De tweede is de physics van de vliegende pluisjes: meedrijven met dezelfde wind als de wei, traag dalen met luchtweerstand (parachute), fladderen, op de grond blijven liggen. Een los pluisje draait rechtop en zijn parachuutje gaat open (shape key "Open"). Tot 64 kale bloemen worden onthouden (welke pluisjes los zijn); van ver wordt de foto van een kale bol doorzichtiger
 - Inzoomen op één bloem met scherptediepte (post-processing met `RenderPipeline`, `src/core/postprocessing.js`): de scène gaat met kleur en diepte naar een textuur, daarna wordt per pixel gemengd tussen scherp en een wazige versie (gaussian blur op halve resolutie), volgens de afstand tot de gekozen bol; plus een zacht vignet. Alleen actief als je ingezoomd bent
 - Tweede Shadertoy-shader: 300 vuurvliegjes als billboards (één draw call) met het knipperritme en de gloed van "Fireflies at Dusk" (`src/world/Fireflies.js`)
 - Physics voor de vuurvliegjes als tweede compute shader: passeer je er een met de muis of de hand, dan vliegt het zacht omhoog en een beetje opzij, en daalt het langzaam terug (kritisch gedempte veer, dus zonder te stuiteren)
 - Eigen Blender-model (`blender/puffballSimple.blend` → `public/models/puffballSimple.glb`): steel, bol (receptacle) en pluisje.
   - **Baking:** Ambient Occlusion gebakken in Blender (Cycles) voor de steel en de bol (`blender/textures/`), als occlusionTexture in de GLB en in de app als `aoMap`. Alleen AO, geen volledige lichtbake, want het licht verandert van dag naar nacht.
   - **Shape key "Buigen" vanuit de code aangestuurd:** in Blender buigt de steel in een boog naar +X. De app leest die vorm in (`src/world/models.js`) en de vertex-shader draait hem per bloem naar de richting waarin wind en veer-physics duwen; de physics bepaalt ook hoe ver (0 = recht, 1 = volledig gebogen zoals in Blender) (`src/world/Meadow.js`).
+  - **Shape keys "Open" en "Kaal" vanuit de code aangestuurd:** "Open" op het pluisje gaat van 0 naar 1 in de eerste 0,8 s van de vlucht (het parachuutje gaat open, `src/world/Seeds.js`); "Kaal" op de bol volgt hoeveel pluisjes weg zijn (`src/world/Meadow.js`). Alle shape keys worden eigen attributen (`takeShapeKey` in `src/world/models.js`), zodat elke bloem en elk pluisje een eigen waarde heeft
   - De pluisjes worden in code met de gulden hoek (Fibonacci-spiraal) over de bol verdeeld en met instancing getekend; LOD: echte pluisjes op de dichtste bollen, in de verte een billboard met een gebakken foto van een echte pluizenbol (impostor)
 
 ## Lokaal draaien
@@ -59,14 +60,13 @@ Bouwen: `npm run build` (output in `dist/`). Elke push naar `main` wordt via Git
 src/
   main.js              startpunt + startscherm
   App.js               renderer, scène, camera, render-loop
-  core/                renderer, camera en prestatiemeter
+  core/                renderer, camera, scherptediepte (post-processing) en prestatiemeter
   state/worldState.js  gedeelde wereldtoestand (uTimeOfDay, zon, horizon, wind, lichtmeter)
-  world/               lucht, grond, wei (Blender-model + LOD), windveld, terreinhoogte, veer-physics, vuurvliegjes
-  interaction/         aanwijzers (muis, hand), inzoomen op een bloem en de webcam op de GPU (beweging + licht)
+  world/               lucht, grond, schaduwen, wei (Blender-model + LOD), windveld, terreinhoogte, veer-physics, pluisjes, vuurvliegjes
+  interaction/         aanwijzers (muis, hand), inzoomen op een bloem, microfoon, windroos en de webcam (hand + licht)
 blender/               Blender-werkbestanden (.blend), niet online
 public/
   models/              Blender-exports (GLB): puffballSimple.glb
-  audio/               muziek en windgeruis
 ```
 
 ## Bronnen en credits
@@ -93,12 +93,6 @@ De originele GLSL staat ter referentie in `shaders/original/circadian.glsl`.
 **Fireflies at Dusk** (CC0 1.0) is zelf geïnspireerd door de Night Field-sfeer van diatribes en de gloed-technieken van Blackle. De originele GLSL staat in `shaders/original/fireflies.glsl`.
 
 **Aanpassingen in de port:** alleen de vuurvliegjes zijn overgenomen (`hash`, `fireflyBlink` met de dubbele flits, de zweefbeweging in een achtvorm, de kern + gloed en de geelgroene kleur). De lucht, bomen en het gras van het origineel zijn weggelaten, want die heeft de wei al. In plaats van 35 punten op een plat scherm zijn het 300 vuurvliegjes in 3D: elk is een billboard, en de gloed wordt per pixel berekend met de formules van het origineel. De zweefbeweging kreeg een derde as (diepte). Ze verschijnen alleen bij schemering en 's nachts, en schrikken op van muis en hand: ze vliegen zacht omhoog en dalen daarna weer.
-
-### Muziek en geluid
-
-| Titel | Maker | Bron | Licentie |
-| --- | --- | --- | --- |
-| _TODO_ | | | |
 
 ### Libraries
 
