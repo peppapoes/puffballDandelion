@@ -12,12 +12,14 @@ Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in p
 | ↑ (tikken) | Een stap terug in de tijd |
 | ↓ / ↑ ingedrukt houden | De tijd loopt vloeiend door (een volle dag in ±10 seconden) |
 | Muis door de bloemen bewegen | De pluizenbollen worden meegeduwd en veren na |
-| 📷 Camera aan (knop rechtsonder) | Hou je hand voor de webcam en wrijf door de wei: je raakt een veel groter stuk aan dan met de muis. Het licht in je kamer stuurt dag en nacht (een pijltje neemt 20 s voorrang). Geen camera? De muis en de pijltjes blijven werken. |
+| 📷 Camera aan (knop rechtsonder) | Hou je hand voor de webcam en wrijf door de wei: je raakt een veel groter stuk aan dan met de muis. Het licht in je kamer stuurt dag en nacht: doe het licht uit of bedek de camera en het wordt nacht (een pijltje neemt 20 s voorrang). Geen camera? De muis en de pijltjes blijven werken. |
+| Windroos (linksonder) slepen | De wind komt uit die hoek; de roos draait mee met de camera zoals een kompas |
+| 🎤 Microfoon aan en blazen | Hoe harder je blaast, hoe harder de wind over de hele wei (de roos toont de windkracht) |
 | Slepen / scrollen | Rond de wei draaien en zoomen (begrensd) |
 | Klik op een bloem | De camera zoomt vloeiend in op die pluizenbol; de bloem beweegt nog maar zachtjes, de rest van de wei waait door. Ingezoomd: slepen = rond de bloem draaien, scrollen = dichterbij of verder |
 | Escape of klik naast de bloem | Vloeiend terug naar je plek in de wei |
 | Ingezoomd: wrijf met muis of hand over de bol | Hoe sneller je wrijft, hoe meer pluisjes loskomen; ze openen hun parachuutje en dwarrelen traag weg met de wind. De bol wordt kaler en blijft kaal, ook als je uitzoomt |
-| 🎤 Microfoon aan (knop rechtsonder), ingezoomd blazen | Hoe harder je blaast, hoe meer pluisjes wegvliegen, eerst aan jouw kant van de bol |
+| 🎤 Microfoon aan (knop rechtsonder), ingezoomd blazen | Hoe harder je blaast, hoe meer pluisjes wegvliegen, eerst aan jouw kant van de bol. Het balkje onder de knop toont hoe hard de microfoon je hoort blazen; praten telt niet |
 | `?debug` achter de URL | Prestatiepaneel; in de console meet `await app.benchmark()` de echte kost per frame |
 
 ## Techniek
@@ -25,12 +27,14 @@ Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in p
 - [Three.js](https://threejs.org/) met `WebGPURenderer` (`three/webgpu`), valt automatisch terug op WebGL2
 - Shaders in TSL (`three/tsl`)
 - [Vite](https://vite.dev/) als build-tool
+- Extra WebGPU-library [tsl-textures](https://boytchev.github.io/tsl-textures/): procedurele texturen in TSL. De grond van de wei gebruikt `camouflage` in twee lagen (plekken van ±10 m en plukjes van ±1 m) met weidetinten, per pixel berekend uit ruis, zonder afbeeldingen (`src/world/Ground.js`)
 - Webcam als sensor (`src/interaction/CameraVision.js`):
   - handtracking met [MediaPipe Hand Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker) in een Web Worker (`handWorker.js`), zodat de wei vlot blijft; tussen twee detecties voorspelt de app waar de hand nu is (uit haar snelheid), zodat de cirkel vlot meebeweegt; herkent alleen handen, geen hoofd of andere beweging
-  - lichtmeter op de GPU met **compute shaders in TSL**: de gemiddelde helderheid van het camerabeeld stuurt dag en nacht
+  - lichtmeter op de GPU met **compute shaders in TSL**: helderheid én contrast van het camerabeeld (64×48 vakjes) sturen dag en nacht. Het contrast is nodig omdat een webcam een donker beeld zelf weer oplicht (automatische belichting): een bedekte camera of donkere kamer wordt dan grijs, maar blijft vlak
 - De lucht rekent het dure deel (atmosfeer, wolken) op 1/16 van de pixels in een render target; sterren en horizon op volle resolutie
+- Wind (`src/world/wind.js`): ruis die in de windrichting over de wei schuift, zodat vlagen als golven over het veld trekken. Richting via de windroos (`src/interaction/WindRose.js`), kracht via blazen in de microfoon (`updateWind` in `src/state/worldState.js`)
 - Veer-physics van de stelen als compute shader op de GPU (`src/world/FlowerPhysics.js`)
-- Pluisjes wegwrijven of wegblazen (`src/world/Seeds.js`): twee compute shaders. De eerste geeft elk pluisje van de gekozen bloem een kans om los te komen (wrijfsnelheid van muis/hand, blaaskracht van de microfoon via de Web Audio API in `src/interaction/Microphone.js`). De tweede is de physics van de vliegende pluisjes: meedrijven met dezelfde wind als de wei, traag dalen met luchtweerstand (parachute), fladderen, op de grond blijven liggen. Een los pluisje draait rechtop en zijn pluis waaiert open. Tot 64 kale bloemen worden onthouden (welke pluisjes los zijn); van ver wordt de foto van een kale bol doorzichtiger
+- Pluisjes wegwrijven of wegblazen (`src/world/Seeds.js`): twee compute shaders. De eerste geeft elk pluisje van de gekozen bloem een kans om los te komen (wrijfsnelheid van muis/hand, blaaskracht van de microfoon via de Web Audio API in `src/interaction/Microphone.js`: alleen luid én ruisachtig geluid telt als blazen, gemeten met de spectrale vlakheid van het spectrum (FFT), zodat praten of muziek de pluisjes niet wegblaast). De tweede is de physics van de vliegende pluisjes: meedrijven met dezelfde wind als de wei, traag dalen met luchtweerstand (parachute), fladderen, op de grond blijven liggen. Een los pluisje draait rechtop en zijn pluis waaiert open. Tot 64 kale bloemen worden onthouden (welke pluisjes los zijn); van ver wordt de foto van een kale bol doorzichtiger
 - Inzoomen op één bloem met scherptediepte (post-processing met `RenderPipeline`, `src/core/postprocessing.js`): de scène gaat met kleur en diepte naar een textuur, daarna wordt per pixel gemengd tussen scherp en een wazige versie (gaussian blur op halve resolutie), volgens de afstand tot de gekozen bol; plus een zacht vignet. Alleen actief als je ingezoomd bent
 - Tweede Shadertoy-shader: 300 vuurvliegjes als billboards (één draw call) met het knipperritme en de gloed van "Fireflies at Dusk" (`src/world/Fireflies.js`)
 - Physics voor de vuurvliegjes als tweede compute shader: passeer je er een met de muis of de hand, dan vliegt het zacht omhoog en een beetje opzij, en daalt het langzaam terug (kritisch gedempte veer, dus zonder te stuiteren)
@@ -98,4 +102,5 @@ De originele GLSL staat ter referentie in `shaders/original/circadian.glsl`.
 ### Libraries
 
 - [three.js](https://github.com/mrdoob/three.js) (MIT)
+- [tsl-textures](https://github.com/boytchev/tsl-textures) 3.0.5 door Pavel Boytchev (MIT)
 - [@mediapipe/tasks-vision](https://www.npmjs.com/package/@mediapipe/tasks-vision) 1.1.0 (Apache 2.0); WebAssembly via https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.0/wasm, handmodel `hand_landmarker.task` via https://storage.googleapis.com/mediapipe-models/

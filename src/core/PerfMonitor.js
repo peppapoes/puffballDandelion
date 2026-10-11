@@ -25,6 +25,7 @@ export class PerfMonitor {
     this.starts = {};
     this.counts = {}; // naam → aantal sinds de vorige verversing
     this.rates = {}; // naam → aantal per seconde
+    this.infos = {}; // naam → extra regel tekst
     this.lastRefresh = 0;
 
     if (!this.enabled) return;
@@ -45,6 +46,11 @@ export class PerfMonitor {
   record(name, ms) {
     const previous = this.averages[name];
     this.averages[name] = previous === undefined ? ms : previous + (ms - previous) * SMOOTHING;
+  }
+
+  /** Een extra regel tekst in het paneel (bv. de meetwaarden van de microfoon) */
+  info(name, text) {
+    if (this.enabled) this.infos[name] = text;
   }
 
   /** Iets dat niet elke frame gebeurt (bv. een handdetectie) tellen: het paneel toont het aantal per seconde */
@@ -82,6 +88,7 @@ export class PerfMonitor {
       `CPU  renderen   ${ms('render')}`,
       '',
       `hand  ${(this.rates.hand ?? 0).toFixed(1).padStart(4)} /s   ${ms('hand')} per detectie`,
+      ...Object.entries(this.infos).map(([name, text]) => `${name}   ${text}`),
       '',
       `draw calls  ${info.drawCalls}`,
       `driehoeken  ${info.triangles.toLocaleString('nl-BE')}`,

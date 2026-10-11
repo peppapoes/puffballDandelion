@@ -1,19 +1,36 @@
-const BLOW_MIN = 0.03; // volume (RMS) waaronder niets gebeurt: achtergrondgeluid
-const BLOW_MAX = 0.25; // volume waarbij je "hard" blaast
-const ATTACK = 15; // hoe snel de blaaskracht stijgt (per seconde)
-const RELEASE = 3; // hoe snel ze weer zakt: na een stoot nog even nablazen
+// Volume (RMS van het geluidssignaal)
+const LOUD_MIN = 0.02; // daaronder: stilte of achtergrondgeluid
+const LOUD_MAX = 0.2; // hard blazen
+// Ruisachtigheid (spectrale vlakheid, 0..1): blazen is ruis, een stem heeft duidelijke tonen
+const NOISE_MIN = 0.15; // daaronder: stem, muziek, een fluitje
+const NOISE_MAX = 0.35; // daarboven: zeker ruis (blazen, "sssh")
+const NOISE_BAND = [80, 4000]; // Hz: hier meten we de vlakheid (blazen rommelt vooral laag)
+// Afvlakken
+const ATTACK = 6; // per seconde: stijgt niet bij een kort geluidje (een "s" in een woord), wel bij blijven blazen
+const RELEASE = 3; // per seconde: na het blazen nog even nablazen
 
 /**
  * Microfoon als blaassensor (Web Audio API).
- * Blazen in een microfoon geeft een luide ruis: het volume (RMS van het geluidssignaal)
- * wordt de blaaskracht `level` (0..1), die Seeds.js gebruikt om pluisjes weg te blazen.
+ *
+ * Blazen herkennen, niet gewoon "luid geluid":
+ * - volume: RMS van het signaal (hoe hard)
+ * - ruisachtigheid: spectrale vlakheid van het spectrum (FFT). Blazen op een microfoon geeft
+ *   ruis (alle toonhoogtes ongeveer even sterk → dicht bij 1), een stem of muziek heeft
+ *   duidelijke tonen (pieken → dicht bij 0).
+ * Alleen luid ÉN ruisachtig telt als blazen: `level` (0..1). Dat stuurt de windkracht in de hele wei
+ * (worldState.updateWind) en, ingezoomd op een bloem, het wegblazen van de pluisjes (Seeds.js).
  * Ruisonderdrukking en automatische volumeregeling staan uit: die zouden net het blazen wegfilteren.
  */
 export class Microphone {
-  constructor() {
+  constructor(perf) {
+    this.perf = perf; // prestatiemeter (?debug): volume, ruisachtigheid en blaaskracht tonen
     this.level = 0; // blaaskracht 0..1, afgevlakt
+    this.loudness = 0;
+    this.noisiness = 0;
     this.analyser = null;
     this.button = document.getElementById('mic-button');
+    this.meter = document.getElementById('mic-meter');
+    this.meterBar = this.meter.firstElementChild;
     this.button.addEventListener('click', () => (this.analyser ? this.stop() : this.start()));
   }
 
@@ -30,10 +47,16 @@ export class Microphone {
       });
       this.context = new AudioContext();
       this.analyser = this.context.createAnalyser();
-      this.analyser.fftSize = 1024;
+      this.analyser.fftSize = 2048;
+      this.analyser.smoothingTimeConstant = 0.3;
       this.context.createMediaStreamSource(this.stream).connect(this.analyser);
       this.samples = new Float32Array(this.analyser.fftSize);
+      this.spectrum = new Float32Array(this.analyser.frequencyBinCount);
+      // Welke FFT-vakjes (bins) horen bij NOISE_BAND?
+      const hzPerBin = this.context.sampleRate / this.analyser.fftSize;
+      this.band = NOISE_BAND.map((hz) => Math.round(hz / hzPerBin));
       this.button.textContent = '🎤 Microfoon uit';
+      this.meter.hidden = false;
     } catch (error) {
       console.warn('Microfoon niet beschikbaar:', error);
       this.button.textContent = '🎤 Geen microfoon';
@@ -46,20 +69,40 @@ export class Microphone {
     this.context?.close();
     this.analyser = null;
     this.level = 0;
+    this.meter.hidden = true;
     this.button.textContent = '🎤 Microfoon aan';
   }
 
-  /** Elke frame: volume meten → blaaskracht */
+  /** Elke frame: volume en ruisachtigheid meten → blaaskracht */
   update(delta) {
     if (!this.analyser) return;
+
+    // Volume: RMS van het signaal
     this.analyser.getFloatTimeDomainData(this.samples);
     let sum = 0;
     for (const sample of this.samples) sum += sample * sample;
-    const rms = Math.sqrt(sum / this.samples.length);
+    this.loudness = Math.sqrt(sum / this.samples.length);
 
-    const target = smoothstep(BLOW_MIN, BLOW_MAX, rms);
+    // Ruisachtigheid: meetkundig gemiddelde / rekenkundig gemiddelde van het vermogen per toonhoogte
+    this.analyser.getFloatFrequencyData(this.spectrum); // in decibel
+    let logSum = 0;
+    let powerSum = 0;
+    const [from, to] = this.band;
+    for (let bin = from; bin < to; bin++) {
+      const power = 10 ** (Math.max(this.spectrum[bin], -160) / 10); // dB → vermogen
+      logSum += Math.log(power);
+      powerSum += power;
+    }
+    const count = to - from;
+    this.noisiness = Math.exp(logSum / count) / (powerSum / count || 1);
+
+    // Alleen luid én ruisachtig telt als blazen
+    const target = smoothstep(LOUD_MIN, LOUD_MAX, this.loudness) * smoothstep(NOISE_MIN, NOISE_MAX, this.noisiness);
     const speed = target > this.level ? ATTACK : RELEASE;
     this.level += (target - this.level) * (1 - Math.exp(-speed * delta));
+
+    this.meterBar.style.width = `${Math.round(this.level * 100)}%`;
+    this.perf?.info('mic', `volume ${this.loudness.toFixed(3)}  ruis ${this.noisiness.toFixed(2)}  blazen ${this.level.toFixed(2)}`);
   }
 }
 

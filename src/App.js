@@ -4,7 +4,7 @@ import { PerfMonitor, benchmark } from './core/PerfMonitor.js';
 import { fog, rangeFogFactor } from 'three/tsl';
 import { createCamera, keepCameraAboveGround } from './core/camera.js';
 import {
-  uTimeOfDay, uSunDirection, uHorizonColor, initWorldStateInput, updateWorldState, setDaylightFromRoom,
+  uTimeOfDay, uSunDirection, uHorizonColor, initWorldStateInput, updateWorldState, setDaylightFromRoom, updateWind,
 } from './state/worldState.js';
 import { Sky } from './world/Sky.js';
 import { createGround } from './world/Ground.js';
@@ -16,6 +16,7 @@ import { CameraVision } from './interaction/CameraVision.js';
 import { FlowerFocus } from './interaction/FlowerFocus.js';
 import { FocusPostProcessing } from './core/postprocessing.js';
 import { Microphone } from './interaction/Microphone.js';
+import { WindRose } from './interaction/WindRose.js';
 import { Seeds } from './world/Seeds.js';
 
 const DAY_SUN = new THREE.Color('#fff4e0');
@@ -74,7 +75,8 @@ export class App {
     this.scene.add(this.fireflies.mesh);
 
     // Ingezoomd: pluisjes wegwrijven (muis, hand) of wegblazen (microfoon); ze dwarrelen weg
-    this.microphone = new Microphone();
+    this.microphone = new Microphone(this.perf);
+    this.windRose = new WindRose(this.controls); // windrichting kiezen
     this.seeds = new Seeds(this.renderer, this.meadow, this.flowerPhysics.pointerUniforms);
     this.scene.add(this.seeds.group);
 
@@ -88,6 +90,7 @@ export class App {
     // TODO: audio starten (ambient muziek + windgeruis)
     this.cameraVision.show();
     this.microphone.show();
+    this.windRose.show();
   }
 
   createLights() {
@@ -119,7 +122,7 @@ export class App {
 
     perf.begin('world');
     // Lichtmeter van de webcam stuurt dag/nacht (tenzij je net de pijltjes gebruikte)
-    if (this.cameraVision.brightness !== null) setDaylightFromRoom(this.cameraVision.brightness);
+    if (this.cameraVision.brightness !== null) setDaylightFromRoom(this.cameraVision.brightness, this.cameraVision.contrast);
     updateWorldState(delta);
     this.updateLights();
     this.flowerFocus.update(delta); // camera: overgang afspelen, of gewoon de OrbitControls
@@ -137,6 +140,9 @@ export class App {
     this.meadow.update(delta, this.camera); // LOD: dichtste bollen krijgen echte pluisjes
     this.fireflies.update(delta, this.camera); // physics: opschrikken en terugdalen
     this.microphone.update(delta);
+    // Blazen = wind: hoe harder, hoe harder de wind (in de hele wei); richting uit de windroos
+    updateWind(delta, this.microphone.level);
+    this.windRose.update();
     // Pluisjes loskrijgen alleen als je ingezoomd bent (en de camera aangekomen is)
     const focused = this.flowerFocus.flight ? null : this.flowerFocus.focused;
     this.seeds.update(delta, this.camera, focused, this.microphone.level);

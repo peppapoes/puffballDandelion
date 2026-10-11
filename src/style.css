@@ -114,6 +114,25 @@ body {
   cursor: wait;
 }
 
+/* Blaasmeter: balkje dat volloopt als je blaast */
+#mic-meter {
+  width: 120px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+#mic-meter[hidden] {
+  display: none;
+}
+
+#mic-meter > div {
+  width: 0;
+  height: 100%;
+  background: #7df9ff;
+}
+
 /* Webcambeeld: klein en gespiegeld, zodat bewegen voelt als in een spiegel */
 #camera-video {
   display: none;
@@ -161,6 +180,62 @@ body {
   background: rgba(0, 0, 0, 0.6);
   pointer-events: none;
   z-index: 20;
+}
+
+/* --- Windroos (linksonder, boven het WebGPU-label) --- */
+
+#wind-rose {
+  position: fixed;
+  left: 12px;
+  bottom: 44px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  color: #f4f1ea;
+  font-size: 12px;
+  touch-action: none; /* slepen op een touchscreen draait de roos, niet de pagina */
+  cursor: grab;
+  user-select: none;
+}
+
+#wind-rose[hidden] {
+  display: none;
+}
+
+#wind-rose p {
+  margin: 0;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+#wind-rose .ring {
+  fill: rgba(0, 0, 0, 0.35);
+  stroke: rgba(244, 241, 234, 0.6);
+  stroke-width: 1.5;
+}
+
+#wind-rose .letter {
+  fill: rgba(244, 241, 234, 0.75);
+  font-size: 11px;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+#wind-rose .arrow {
+  stroke: #7df9ff;
+  stroke-linecap: round;
+}
+
+#wind-rose .arrow-head {
+  fill: #7df9ff;
+}
+
+#wind-rose .handle {
+  fill: #f4f1ea;
+  stroke: rgba(0, 0, 0, 0.4);
 }
 
 #backend-badge {

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -I - /private/tmp/claude-501/-Users-femkedelatter-Documents-Creative-Development-GPU-ThreeJS-puffballDandelion/10e47af6-c541-453d-95b8-3831db5736db/scratchpad/mic.mjs /private/tmp/claude-501/-Users-femkedelatter-Documents-Creative-Development-GPU-ThreeJS-puffballDandelion/10e47af6-c541-453d-95b8-3831db5736db/scratchpad/mic2.mjs)",
+      "Bash(node /private/tmp/claude-501/-Users-femkedelatter-Documents-Creative-Development-GPU-ThreeJS-puffballDandelion/10e47af6-c541-453d-95b8-3831db5736db/scratchpad/mic2.mjs http://localhost:5199/?debug /private/tmp/claude-501/-Users-femkedelatter-Documents-Creative-Development-GPU-ThreeJS-puffballDandelion/10e47af6-c541-453d-95b8-3831db5736db/scratchpad/audio/blazen.wav)",
+      "Bash(xargs -r kill)"
+    ]
+  }
+}

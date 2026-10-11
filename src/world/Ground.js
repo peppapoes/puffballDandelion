@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
-import { color, mix } from 'three/tsl';
+import { color, mix, positionGeometry } from 'three/tsl';
+import { camouflage } from 'tsl-textures';
 import { uTimeOfDay } from '../state/worldState.js';
 import { heightAt } from './terrain.js';
 
@@ -7,9 +8,27 @@ import { heightAt } from './terrain.js';
 const SIZE = 600;
 const SEGMENTS = 240;
 
+// Weidekleuren overdag, dicht bij elkaar: camouflage maakt harde randen tussen de tinten,
+// met weinig verschil lijken die op natuurlijke plekken in het gras
+const MEADOW = {
+  colorA: new THREE.Color('#71984a'), // droger, zonnig gras
+  colorB: new THREE.Color('#537f37'), // schaduw en mos
+  colorC: new THREE.Color('#6a9040'), // geelgroen
+  colorD: new THREE.Color('#5f8f3e'), // basis (meeste oppervlak)
+};
+// Vlekgrootte: camouflage rekent met positie × e^scale
+const PATCHES_LARGE = Math.log(1 / 10); // plekken van ±10 m
+const PATCHES_SMALL = Math.log(1); // plukjes van ±1 m
+const SMALL_AMOUNT = 0.35; // hoeveel de kleine plukjes doorschemeren
+// 's Nachts: dezelfde vlekken, maar blauwgroen (basis #5f8f3e wordt #2f5f58, zoals voorheen)
+const NIGHT_TINT = color('#2f5f58').div(color('#5f8f3e'));
+
 /**
- * PLACEHOLDER-grond: glooiend vlak met een effen kleur.
- * Later: procedurele textuur via tsl-textures + gebakken dag/nacht-lightmap uit Blender.
+ * Grond van de wei: glooiend vlak met een procedurele graskleur uit tsl-textures
+ * (extra WebGPU-library: texturen in TSL, per pixel berekend uit ruis, zonder afbeeldingen).
+ * camouflage geeft vlekken in vier tinten; twee lagen (grote plekken en kleine plukjes)
+ * door elkaar, zodat het zowel van ver als van dichtbij natuurlijk oogt.
+ * Later eventueel: gebakken dag/nacht-lightmap uit Blender.
  */
 export function createGround() {
   const geometry = new THREE.PlaneGeometry(SIZE, SIZE, SEGMENTS, SEGMENTS);
@@ -21,8 +40,13 @@ export function createGround() {
   }
   geometry.computeVertexNormals();
 
+  // Op de positie in de wei (geen transformatie op de grond): de vlekken liggen vast in de wereld
+  const large = camouflage({ ...MEADOW, position: positionGeometry, scale: PATCHES_LARGE, seed: 0 });
+  const small = camouflage({ ...MEADOW, position: positionGeometry, scale: PATCHES_SMALL, seed: 7 });
+  const day = mix(large, small, SMALL_AMOUNT);
+
   const material = new THREE.MeshStandardNodeMaterial({ roughness: 1 });
-  material.colorNode = mix(color('#2f5f58'), color('#5f8f3e'), uTimeOfDay);
+  material.colorNode = mix(day.mul(NIGHT_TINT), day, uTimeOfDay);
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.receiveShadow = true;

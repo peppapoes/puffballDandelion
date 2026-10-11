@@ -25,11 +25,48 @@ function timeOfDayFromCycle(c) {
   return 1 - 2 * Math.min(phase, 1 - phase); // middag 1 → middernacht 0 → middag 1
 }
 
-// Basiswind over de wei (0 = windstil). Muis, microfoon en vlagen tellen hier later bij op.
+// Wind over de wei: kracht (0 = windstil) = basis + blazen in de microfoon
 export const uWindStrength = uniform(0.6);
 
-// Richting waarin de windgolven over de wei trekken (genormaliseerd x/z)
+// Richting waarin de wind waait (genormaliseerd x/z), ingesteld met de windroos
 export const uWindDirection = uniform(new Vector2(1, 0.35).normalize());
+
+// Hoe ver de windgolven al opgeschoven zijn (m, x/z). Opgeteld per frame (richting × snelheid),
+// zodat draaien aan de windroos of harder blazen de golven niet doet verspringen.
+export const uWindOffset = uniform(new Vector2());
+
+const WIND_BASE = 0.6; // windkracht zonder blazen
+const WIND_BLOW = 1.4; // extra windkracht bij hard blazen (hoe harder, hoe meer)
+const WIND_RISE = 2.5; // per seconde: hoe snel een windstoot opsteekt
+const WIND_FALL = 0.6; // per seconde: hoe traag hij weer gaat liggen
+const WIND_TURN = 2; // per seconde: hoe snel de wind naar een nieuwe richting draait
+const WAVE_SPEED = 2.5; // m/s waarmee de windgolven over de wei trekken bij de basiswind
+
+const windTarget = uWindDirection.value.clone(); // richting van de windroos (de wind draait er vloeiend naartoe)
+
+/** Windroos: de wind waait in richting (x, z) */
+export function setWindDirection(x, z) {
+  windTarget.set(x, z).normalize();
+}
+
+/** Richting waarnaar de wind aan het draaien is (voor de windroos) */
+export function getWindTarget() {
+  return windTarget;
+}
+
+/** Elke frame: windkracht volgt het blazen (0..1), richting en golven schuiven op */
+export function updateWind(delta, blow) {
+  const strength = WIND_BASE + blow * WIND_BLOW;
+  const rate = strength > uWindStrength.value ? WIND_RISE : WIND_FALL;
+  uWindStrength.value += (strength - uWindStrength.value) * (1 - Math.exp(-rate * delta));
+
+  const direction = uWindDirection.value;
+  direction.lerp(windTarget, 1 - Math.exp(-WIND_TURN * delta)).normalize();
+
+  // Sterkere wind = snellere golven
+  const distance = WAVE_SPEED * (uWindStrength.value / WIND_BASE) * delta;
+  uWindOffset.value.addScaledVector(direction, distance);
+}
 
 // Zonnestand voor de Circadian-lucht (Sky.js) en het zonlicht (App.js).
 // uSunHeight komt overeen met 'uvMouse.y' uit de originele shader:
@@ -102,6 +139,10 @@ let heldDirection = 0; // -1 = ↑ ingedrukt, 1 = ↓ ingedrukt, 0 = niets
 // Lichtmeter (webcam): helderheid van de kamer → dag/nacht. Pijltjes nemen even voorrang.
 const ROOM_DARK = 0.1; // gemiddelde helderheid van het camerabeeld in een donkere kamer → nacht
 const ROOM_BRIGHT = 0.45; // ... in een lichte kamer → dag
+// Contrast (standaardafwijking van de vakjes): de webcam licht een donker beeld zelf op
+// (automatische belichting), maar een bedekte camera of donkere kamer blijft vlak.
+const ROOM_FLAT = 0.03; // daaronder: vlak beeld → nacht, hoe helder de camera het ook maakt
+const ROOM_DETAILED = 0.08; // daarboven: gewone kamer met vormen en randen
 const MANUAL_OVERRIDE_MS = 20000; // na een pijltje volgt de wereld 20 s de pijltjes, niet het licht
 let manualUntil = 0;
 
@@ -126,9 +167,15 @@ export function initWorldStateInput() {
   window.addEventListener('blur', () => (heldDirection = 0));
 }
 
-/** Helderheid van de kamer (0..1) → tijd van de dag (0 = nacht, 1 = dag) */
-export function daylightFromBrightness(brightness) {
-  return MathUtils.smoothstep(brightness, ROOM_DARK, ROOM_BRIGHT);
+/**
+ * Kamer (webcam) → tijd van de dag (0 = nacht, 1 = dag).
+ * Alleen licht ÉN contrast is dag: donker = nacht, maar ook een vlak beeld = nacht
+ * (bedekte camera die de automatische belichting weer grijs-helder maakt).
+ */
+export function daylightFromRoom(brightness, contrast) {
+  const light = MathUtils.smoothstep(brightness, ROOM_DARK, ROOM_BRIGHT);
+  const detail = MathUtils.smoothstep(contrast, ROOM_FLAT, ROOM_DETAILED);
+  return light * detail;
 }
 
 /** Volgt de wereld nu de pijltjes (true) of het licht van de kamer (false)? */
@@ -137,14 +184,14 @@ export function isManualOverride() {
 }
 
 /**
- * Lichtmeter: helderheid van de kamer (0..1, gemiddelde van het camerabeeld) stuurt dag/nacht.
+ * Lichtmeter: helderheid en contrast van de kamer (webcam) sturen dag/nacht.
  * Kiest het dichtstbijzijnde punt in de cyclus met die tijd van de dag, zodat de wereld
  * niet plots de andere kant van de dag op draait. Doet niets kort na een pijltje.
  */
-export function setDaylightFromRoom(brightness) {
+export function setDaylightFromRoom(brightness, contrast) {
   if (performance.now() < manualUntil) return;
 
-  const t = daylightFromBrightness(brightness); // 0 = nacht, 1 = dag
+  const t = daylightFromRoom(brightness, contrast); // 0 = nacht, 1 = dag
   const evening = (1 - t) / 2; // die tijd van de dag op de avondkant van de cyclus (0..0.5)
   const base = Math.floor(cycle);
   let best = cycleTarget;

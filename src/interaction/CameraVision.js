@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { daylightFromBrightness, isManualOverride } from '../state/worldState.js';
+import { daylightFromRoom, isManualOverride } from '../state/worldState.js';
 import { Fn, Loop, float, vec2, vec3, texture, instancedArray, instanceIndex, dot, pow } from 'three/tsl';
 
 /**
@@ -9,8 +9,9 @@ import { Fn, Loop, float, vec2, vec3, texture, instancedArray, instanceIndex, do
  *    (handWorker.js), zodat de wei vlot blijft. Herkent alleen handen, geen hoofd of lichaam.
  *    Het midden van je handpalm stuurt een Pointer met een groot aanraakgebied
  *    (FlowerPhysics) en een cirkel op het scherm.
- * 2. Lichtmeter op de GPU (compute shaders in TSL): de gemiddelde helderheid van het
- *    camerabeeld stuurt dag en nacht (donkere kamer = nacht).
+ * 2. Lichtmeter op de GPU (compute shaders in TSL): de gemiddelde helderheid én het contrast
+ *    van het camerabeeld sturen dag en nacht. Donker of vlak (bedekte camera, donkere kamer
+ *    die de camera zelf oplicht) = nacht.
  */
 
 // Lichtmeter: het camerabeeld als rooster van vakjes, per vakje de helderheid
@@ -18,6 +19,7 @@ const GRID_W = 64;
 const GRID_H = 48;
 const CELLS = GRID_W * GRID_H;
 const BRIGHTNESS_EVERY = 6; // niet elk camerabeeld meten: licht verandert traag
+const CELL_SAMPLES = 4; // per vakje 4×4 pixels middelen (ruis van de camera uitvlakken)
 
 // Hand
 // Eén detectie duurt ±80–160 ms, dus ±6–11 per seconde. Meer workers (om beurten een camerabeeld)
@@ -63,6 +65,7 @@ export class CameraVision {
     this.readPending = false;
     this.exposureLocked = false;
     this.brightness = null; // laatste lichtmeting (0..1), null = nog geen meting
+    this.contrast = 0; // laatste contrastmeting (standaardafwijking van de vakjes, 0..0.5)
 
     this.video = document.getElementById('camera-video');
     this.button = document.getElementById('camera-button');
@@ -87,25 +90,43 @@ export class CameraVision {
     const videoTex = texture(this.videoTexture);
 
     this.lumaBuffer = instancedArray(CELLS, 'float'); // helderheid per vakje
-    this.brightnessBuffer = instancedArray(1, 'float'); // gemiddelde
+    this.brightnessBuffer = instancedArray(2, 'float'); // [gemiddelde helderheid, contrast]
     const lumaBuffer = this.lumaBuffer;
 
-    // Compute 1: per vakje de helderheid (één thread per vakje)
+    // Compute 1: per vakje de helderheid (één thread per vakje). Gemiddelde van CELL_SAMPLES×CELL_SAMPLES
+    // pixels in het vakje: een camera die zijn versterking opdraait (bedekt, donkere kamer) geeft
+    // korrelige ruis, en die mag niet als "contrast" meetellen.
     const lumaCompute = Fn(() => {
       const i = instanceIndex;
-      const uv = vec2(float(i.mod(GRID_W)).add(0.5).div(GRID_W), float(i.div(GRID_W)).add(0.5).div(GRID_H));
-      const rgb = videoTex.sample(uv).level(0).rgb;
-      // Lineaire helderheid → waargenomen helderheid (zoals het oog)
-      lumaBuffer.element(i).assign(pow(dot(rgb, LUMA), 1 / 2.2));
+      const corner = vec2(float(i.mod(GRID_W)).div(GRID_W), float(i.div(GRID_W)).div(GRID_H));
+      const sum = float(0).toVar();
+      Loop(CELL_SAMPLES, ({ i: sx }) => {
+        Loop(CELL_SAMPLES, ({ i: sy }) => {
+          const offset = vec2(float(sx).add(0.5).div(CELL_SAMPLES * GRID_W), float(sy).add(0.5).div(CELL_SAMPLES * GRID_H));
+          const rgb = videoTex.sample(corner.add(offset)).level(0).rgb;
+          // Lineaire helderheid → waargenomen helderheid (zoals het oog)
+          sum.addAssign(pow(dot(rgb, LUMA), 1 / 2.2));
+        });
+      });
+      lumaBuffer.element(i).assign(sum.div(CELL_SAMPLES * CELL_SAMPLES));
     })().compute(CELLS);
 
-    // Compute 2: gemiddelde van alle vakjes (één thread telt alles op)
+    // Compute 2: gemiddelde en contrast van alle vakjes (één thread telt alles op).
+    // Contrast = standaardafwijking: hoeveel de vakjes van elkaar verschillen.
+    // Een gewone kamer heeft randen en vormen (veel contrast), een bedekte camera of een
+    // donkere kamer is vlak, ook als de camera het beeld zelf oplicht.
     const averageCompute = Fn(() => {
       const sum = float(0).toVar();
+      const sumSquares = float(0).toVar();
       Loop(CELLS, ({ i }) => {
-        sum.addAssign(lumaBuffer.element(i));
+        const luma = lumaBuffer.element(i);
+        sum.addAssign(luma);
+        sumSquares.addAssign(luma.mul(luma));
       });
-      this.brightnessBuffer.element(0).assign(sum.div(CELLS));
+      const mean = sum.div(CELLS);
+      const variance = sumSquares.div(CELLS).sub(mean.mul(mean)).max(0); // E[x²] − E[x]²
+      this.brightnessBuffer.element(0).assign(mean);
+      this.brightnessBuffer.element(1).assign(variance.sqrt());
     })().compute(1);
 
     this.lightComputes = [lumaCompute, averageCompute];
@@ -258,7 +279,7 @@ export class CameraVision {
     // Asynchroon teruglezen: niet wachten op de GPU
     this.renderer.getArrayBufferAsync(this.brightnessBuffer.value).then((buffer) => {
       if (this.running) {
-        this.brightness = new Float32Array(buffer)[0];
+        [this.brightness, this.contrast] = new Float32Array(buffer);
         this.showLight();
       }
       this.readPending = false;
@@ -295,16 +316,17 @@ export class CameraVision {
 
   /** Statusregel: wat meet de lichtmeter, en wat maakt de wereld ervan? */
   showLight() {
+    // Ook in het ?debug-paneel, om af te stellen
+    const measured = `licht ${Math.round(this.brightness * 100)}% · contrast ${Math.round(this.contrast * 100)}%`;
+    this.perf?.info('kamer', measured);
     if (!this.workerReady) return; // eerst "Handmodel laden…" laten staan
-    const percent = Math.round(this.brightness * 100);
     if (isManualOverride()) {
-      this.setStatus(`Licht in je kamer: ${percent}% · pijltjes hebben even voorrang`);
+      this.setStatus(`Kamer: ${measured} · pijltjes hebben even voorrang`);
       return;
     }
-    const t = daylightFromBrightness(this.brightness);
+    const t = daylightFromRoom(this.brightness, this.contrast);
     const moment = t < 0.25 ? 'nacht' : t < 0.6 ? 'schemering' : 'dag';
-    const limited = this.exposureLocked ? '' : ' (camera regelt zelf de belichting)';
-    this.setStatus(`Licht in je kamer: ${percent}% → ${moment}${limited}`);
+    this.setStatus(`Kamer: ${measured} → ${moment}`);
   }
 
   setStatus(text) {

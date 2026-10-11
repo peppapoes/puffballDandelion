@@ -20,13 +20,18 @@
 
     <div id="backend-badge" hidden></div>
 
+    <!-- Windroos: sleep om de wind uit een andere hoek te laten komen (WindRose.js) -->
+    <div id="wind-rose" hidden title="Sleep om de windrichting te kiezen · blaas in de microfoon voor meer wind"></div>
+
     <!-- Webcam (beweging + licht, op de GPU): knop, status, webcambeeld en de cirkel die je hand volgt -->
     <div id="camera-controls">
       <p id="camera-status"></p>
       <video id="camera-video" playsinline muted></video>
       <button id="camera-button" type="button" hidden>📷 Camera aan</button>
-      <!-- Microfoon: blaas pluisjes weg (ingezoomd op een bloem) -->
+      <!-- Microfoon: blazen = wind (en ingezoomd: pluisjes wegblazen) -->
       <button id="mic-button" type="button" hidden>🎤 Microfoon aan</button>
+      <!-- Blaasmeter: licht op als de microfoon je hoort blazen -->
+      <div id="mic-meter" hidden><div></div></div>
     </div>
     <div id="hand-indicator"></div>
 
