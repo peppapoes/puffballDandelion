@@ -12,14 +12,16 @@ Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in p
 | ↑ (tikken) | Een stap terug in de tijd |
 | ↓ / ↑ ingedrukt houden | De tijd loopt vloeiend door (een volle dag in ±10 seconden) |
 | Muis door de bloemen bewegen | De pluizenbollen worden meegeduwd en veren na |
-| 📷 Camera aan (knop rechtsonder) | Hou je hand voor de webcam en wrijf door de wei: je raakt een veel groter stuk aan dan met de muis. Het licht in je kamer stuurt dag en nacht: doe het licht uit of bedek de camera en het wordt nacht (een pijltje neemt 20 s voorrang). Geen camera? De muis en de pijltjes blijven werken. |
+| Knop **Hands** (camera, rechtsonder) | Hou je hand voor de webcam en wrijf door de wei: je raakt een veel groter stuk aan dan met de muis. Het licht in je kamer stuurt dag en nacht: doe het licht uit of bedek de camera en het wordt nacht (een pijltje neemt 20 s voorrang). Geen camera? De muis en de pijltjes blijven werken. |
 | Windroos (linksonder) slepen | De wind komt uit die hoek; de roos draait mee met de camera zoals een kompas |
-| 🎤 Microfoon aan en blazen | Hoe harder je blaast, hoe harder de wind over de hele wei (de roos toont de windkracht) |
+| Knop **Blow** (microfoon) en blazen | Hoe harder je blaast, hoe harder de wind over de hele wei (de roos toont de windkracht) |
 | Slepen / scrollen | Rond de wei draaien en zoomen (begrensd) |
 | Klik op een bloem | De camera zoomt vloeiend in op die pluizenbol; de bloem beweegt nog maar zachtjes, de rest van de wei waait door. Ingezoomd: slepen = rond de bloem draaien, scrollen = dichterbij of verder |
 | Escape of klik naast de bloem | Vloeiend terug naar je plek in de wei |
 | Ingezoomd: wrijf met muis of hand over de bol | Hoe sneller je wrijft, hoe meer pluisjes loskomen; ze openen hun parachuutje en dwarrelen traag weg met de wind. De bol wordt kaler en blijft kaal, ook als je uitzoomt |
-| 🎤 Microfoon aan (knop rechtsonder), ingezoomd blazen | Hoe harder je blaast, hoe meer pluisjes wegvliegen, eerst aan jouw kant van de bol. Het balkje onder de knop toont hoe hard de microfoon je hoort blazen; praten telt niet |
+| Knop **Blow**, ingezoomd blazen | Hoe harder je blaast, hoe meer pluisjes wegvliegen, eerst aan jouw kant van de bol. Het balkje onder de knop toont hoe hard de microfoon je hoort blazen; praten telt niet |
+| Knop **Music** | De muziek start na de klik op het startscherm en vloeit mee van dag- naar nachtmuziek; de knop zet ze met een korte fade aan of uit |
+| Tips onderaan | Na het starten verschijnt één voor één een tip (handen, blazen, inzoomen, dag en nacht), met een knop om het meteen te proberen. Wat je al gedaan hebt, wordt overgeslagen |
 | `?debug` achter de URL | Prestatiepaneel; in de console meet `await app.benchmark()` de echte kost per frame |
 
 ## Techniek
@@ -36,6 +38,9 @@ Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in p
 - Veer-physics van de stelen als compute shader op de GPU (`src/world/FlowerPhysics.js`)
 - Schaduwen van de bloemen op de grond, berekend in plaats van met een shadow map (die zou de hele wei een tweede keer tekenen): een compute shader maakt elke frame een schaduwkaart van de wei van bovenaf (512×512). Per vakje gaat hij na of de straal naar de zon een bol of steel in de buurt raakt (alleen de 3×3 vakjes van het plaatsingsrooster). Ze bewegen mee met wind en physics; 's nachts en bij een lage zon zwakker (`src/world/FlowerShadows.js`)
 - Pluisjes wegwrijven of wegblazen (`src/world/Seeds.js`): twee compute shaders. De eerste geeft elk pluisje van de gekozen bloem een kans om los te komen (wrijfsnelheid van muis/hand, blaaskracht van de microfoon via de Web Audio API in `src/interaction/Microphone.js`: alleen luid én ruisachtig geluid telt als blazen, gemeten met de spectrale vlakheid van het spectrum (FFT), zodat praten of muziek de pluisjes niet wegblaast). De tweede is de physics van de vliegende pluisjes: meedrijven met dezelfde wind als de wei, traag dalen met luchtweerstand (parachute), fladderen, op de grond blijven liggen. Een los pluisje draait rechtop en zijn parachuutje gaat open (shape key "Open"). Tot 64 kale bloemen worden onthouden (welke pluisjes los zijn); van ver wordt de foto van een kale bol doorzichtiger
+- Muziek die meegaat met dag en nacht (`src/audio/AmbientMusic.js`, Web Audio API): een dag- en een nachtnummer spelen allebei in een lus, elk via een eigen volumeknop (`GainNode`). Die volumes volgen `uTimeOfDay`, dezelfde waarde als de lucht, met een equal-power crossfade (dag = sin, nacht = cos van t·90°), zodat de schemering niet zachter klinkt. De muziek start pas na de klik op het startscherm, omdat browsers geen geluid toelaten zonder klik. Bestanden op 128 kbps (samen ±5,6 MB) en gestreamd
+- Zachte UI in "matglas" (`index.html`, `src/style.css`): half doorzichtige vlakken met een wazige achtergrond (`backdrop-filter`), het ronde lettertype Quicksand en alle kleuren als CSS-variabelen. Overdag crème en perzik, 's nachts lavendel en blauw: `App.js` zet de klasse `night` op de pagina volgens `uTimeOfDay`. Het startscherm heeft zwevende pluisjes (SVG met CSS-animatie, `src/main.js`); de tekst op de site is Engels
+- Tips na het starten (`src/interaction/Hints.js`): één voor één een kaartje met een knop om het meteen te proberen; de bijhorende knop rechtsonder pulseert. Tips die je al uitgevoerd hebt, worden overgeslagen
 - Inzoomen op één bloem met scherptediepte (post-processing met `RenderPipeline`, `src/core/postprocessing.js`): de scène gaat met kleur en diepte naar een textuur, daarna wordt per pixel gemengd tussen scherp en een wazige versie (gaussian blur op halve resolutie), volgens de afstand tot de gekozen bol; plus een zacht vignet. Alleen actief als je ingezoomd bent
 - Tweede Shadertoy-shader: 300 vuurvliegjes als billboards (één draw call) met het knipperritme en de gloed van "Fireflies at Dusk" (`src/world/Fireflies.js`)
 - Physics voor de vuurvliegjes als tweede compute shader: passeer je er een met de muis of de hand, dan vliegt het zacht omhoog en een beetje opzij, en daalt het langzaam terug (kritisch gedempte veer, dus zonder te stuiteren)
@@ -63,10 +68,12 @@ src/
   core/                renderer, camera, scherptediepte (post-processing) en prestatiemeter
   state/worldState.js  gedeelde wereldtoestand (uTimeOfDay, zon, horizon, wind, lichtmeter)
   world/               lucht, grond, schaduwen, wei (Blender-model + LOD), windveld, terreinhoogte, veer-physics, pluisjes, vuurvliegjes
-  interaction/         aanwijzers (muis, hand), inzoomen op een bloem, microfoon, windroos en de webcam (hand + licht)
+  audio/AmbientMusic.js  muziek: dag ↔ nacht overvloeien
+  interaction/         aanwijzers (muis, hand), inzoomen op een bloem, microfoon, windroos, tips en de webcam (hand + licht)
 blender/               Blender-werkbestanden (.blend), niet online
 public/
   models/              Blender-exports (GLB): puffballSimple.glb
+  audio/               muziek: day.mp3, night.mp3
 ```
 
 ## Bronnen en credits
@@ -93,6 +100,20 @@ De originele GLSL staat ter referentie in `shaders/original/circadian.glsl`.
 **Fireflies at Dusk** (CC0 1.0) is zelf geïnspireerd door de Night Field-sfeer van diatribes en de gloed-technieken van Blackle. De originele GLSL staat in `shaders/original/fireflies.glsl`.
 
 **Aanpassingen in de port:** alleen de vuurvliegjes zijn overgenomen (`hash`, `fireflyBlink` met de dubbele flits, de zweefbeweging in een achtvorm, de kern + gloed en de geelgroene kleur). De lucht, bomen en het gras van het origineel zijn weggelaten, want die heeft de wei al. In plaats van 35 punten op een plat scherm zijn het 300 vuurvliegjes in 3D: elk is een billboard, en de gloed wordt per pixel berekend met de formules van het origineel. De zweefbeweging kreeg een derde as (diepte). Ze verschijnen alleen bij schemering en 's nachts, en schrikken op van muis en hand: ze vliegen zacht omhoog en dalen daarna weer.
+
+### Muziek
+
+Beide via [Pixabay](https://pixabay.com/music/), onder de [Pixabay Content License](https://pixabay.com/service/license-summary/) (gratis te gebruiken, vermelding niet verplicht). Verkleind naar 128 kbps.
+
+| Gebruik | Titel | Maker | Bron |
+| --- | --- | --- | --- |
+| Dag (`public/audio/day.mp3`) | Calm Ambient Dreamscape (volgens Pixabay met AI gemaakt) | morgan-ambient | https://pixabay.com/music/ambient-calm-ambient-dreamscape-529861/ |
+| Nacht (`public/audio/night.mp3`) | Ambient - Ambient Music | leberch | https://pixabay.com/music/ambient-ambient-music-604092/ |
+
+### Lettertype en icoontjes
+
+- [Quicksand](https://fonts.google.com/specimen/Quicksand) via Google Fonts (SIL Open Font License)
+- Icoontjes van de knoppen (camera, microfoon, muziek) naar [Lucide](https://lucide.dev/) (ISC-licentie), als inline SVG
 
 ### Libraries
 

@@ -19,6 +19,8 @@ import { FocusPostProcessing } from './core/postprocessing.js';
 import { Microphone } from './interaction/Microphone.js';
 import { WindRose } from './interaction/WindRose.js';
 import { Seeds } from './world/Seeds.js';
+import { AmbientMusic } from './audio/AmbientMusic.js';
+import { Hints } from './interaction/Hints.js';
 
 const DAY_SUN = new THREE.Color('#fff4e0');
 const NIGHT_SUN = new THREE.Color('#9fb4ff');
@@ -32,6 +34,11 @@ const FOG_FAR = 70;
 // Aanraakgebied rond een pluizenbol (m): de hand raakt een veel groter stuk van de wei
 const MOUSE_TOUCH_MARGIN = 0.3;
 const HAND_TOUCH_MARGIN = 1.6;
+
+// Resolutie (pixels per CSS-pixel). Met de camera aan iets lager: de handherkenning moet het
+// camerabeeld via de grafische kaart lezen, en wacht anders op de wei (gemeten: ±20% sneller).
+const PIXEL_RATIO = 2;
+const PIXEL_RATIO_CAMERA = 1.5;
 
 /**
  * Houdt de hele installatie samen: renderer, scène, camera en de render-loop.
@@ -83,16 +90,24 @@ export class App {
     this.seeds = new Seeds(this.renderer, this.meadow, this.flowerPhysics.pointerUniforms);
     this.scene.add(this.seeds.group);
 
+    // Muziek die van dag naar nacht overvloeit (start pas na de klik op het startscherm)
+    this.music = new AmbientMusic();
+    // Tips na het starten: wat kan je nog proberen? (met een knop om het meteen te doen)
+    this.hints = new Hints({ cameraVision: this.cameraVision, microphone: this.microphone, flowerFocus: this.flowerFocus });
+    this.updateNightClass(); // het startscherm meteen in de kleuren van dag of nacht
+
     initWorldStateInput();
     window.addEventListener('resize', () => this.onResize());
     this.renderer.setAnimationLoop((timestamp) => this.update(timestamp));
   }
 
-  /** Wordt opgeroepen na de klik op het startscherm: de knoppen verschijnen. */
+  /** Wordt opgeroepen na de klik op het startscherm (gebruikersgebaar: muziek mag starten). */
   start() {
+    this.music.start();
     this.cameraVision.show();
     this.microphone.show();
     this.windRose.show();
+    this.hints.start();
   }
 
   createLights() {
@@ -127,6 +142,9 @@ export class App {
     if (this.cameraVision.brightness !== null) setDaylightFromRoom(this.cameraVision.brightness, this.cameraVision.contrast);
     updateWorldState(delta);
     this.updateLights();
+    this.music.update(); // dag- en nachtmuziek volgen uTimeOfDay, net als het licht
+    this.updateNightClass();
+    this.hints.update(delta);
     this.flowerFocus.update(delta); // camera: overgang afspelen, of gewoon de OrbitControls
     keepCameraAboveGround(this.camera, this.flowerFocus.minHeight);
     perf.end('world');
@@ -134,6 +152,7 @@ export class App {
     // Na de camera: webcam verwerken (GPU) en hand volgen, stralen bijwerken, bloemen laten reageren
     perf.begin('camera');
     this.cameraVision.update(delta);
+    this.updatePixelRatio();
     perf.end('camera');
 
     perf.begin('physics');
@@ -176,6 +195,23 @@ export class App {
     }
 
     this.renderer.setRenderTarget(null);
+  }
+
+  /** UI-kleuren volgen dag en nacht: klasse .night op <body> (style.css). Alleen bij een verandering. */
+  updateNightClass() {
+    const night = uTimeOfDay.value < 0.4;
+    if (night === this.night) return;
+    this.night = night;
+    document.body.classList.toggle('night', night);
+  }
+
+  /** Camera aan: iets lagere resolutie, zodat de handherkenning de grafische kaart niet moet delen met een volle wei */
+  updatePixelRatio() {
+    const max = this.cameraVision.running ? PIXEL_RATIO_CAMERA : PIXEL_RATIO;
+    const ratio = Math.min(window.devicePixelRatio, max);
+    if (ratio === this.renderer.getPixelRatio()) return;
+    this.renderer.setPixelRatio(ratio);
+    this.resizeSky(); // de lucht rekent op een vast deel van de pixels
   }
 
   resizeSky() {

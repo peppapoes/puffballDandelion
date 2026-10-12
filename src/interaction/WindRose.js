@@ -36,7 +36,7 @@ export class WindRose {
 
     // Alles in deze groep staat in wereldrichtingen en draait mee met de camera
     this.compass = element('g');
-    this.letters = [['N', 0, -1], ['O', 1, 0], ['Z', 0, 1], ['W', -1, 0]].map(([text, x, z]) => {
+    this.letters = [['N', 0, -1], ['E', 1, 0], ['S', 0, 1], ['W', -1, 0]].map(([text, x, z]) => {
       const label = element('text', { x: x * (RADIUS - 11), y: z * (RADIUS - 11), class: 'letter' });
       label.textContent = text;
       this.compass.append(label);

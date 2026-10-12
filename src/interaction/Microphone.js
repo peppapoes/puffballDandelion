@@ -1,9 +1,9 @@
 // Volume (RMS van het geluidssignaal)
-const LOUD_MIN = 0.02; // daaronder: stilte of achtergrondgeluid
-const LOUD_MAX = 0.2; // hard blazen
-// Ruisachtigheid (spectrale vlakheid, 0..1): blazen is ruis, een stem heeft duidelijke tonen
-const NOISE_MIN = 0.15; // daaronder: stem, muziek, een fluitje
-const NOISE_MAX = 0.35; // daarboven: zeker ruis (blazen, "sssh")
+const LOUD_MIN = 0.008; // daaronder: stilte of achtergrondgeluid
+const LOUD_MAX = 0.06; // hard blazen (op een armlengte van de laptop)
+// Ruisachtigheid (spectrale vlakheid, 0..1): blazen is ruis, een stem of muziek heeft duidelijke tonen
+const NOISE_MIN = 0.25; // daaronder: stem, muziek, een fluitje
+const NOISE_MAX = 0.45; // daarboven: zeker ruis (blazen, "sssh")
 const NOISE_BAND = [80, 4000]; // Hz: hier meten we de vlakheid (blazen rommelt vooral laag)
 // Afvlakken
 const ATTACK = 6; // per seconde: stijgt niet bij een kort geluidje (een "s" in een woord), wel bij blijven blazen
@@ -17,6 +17,9 @@ const RELEASE = 3; // per seconde: na het blazen nog even nablazen
  * - ruisachtigheid: spectrale vlakheid van het spectrum (FFT). Blazen op een microfoon geeft
  *   ruis (alle toonhoogtes ongeveer even sterk → dicht bij 1), een stem of muziek heeft
  *   duidelijke tonen (pieken → dicht bij 0).
+ *   Blazen is wel ruis, maar met veel meer bas dan hoogte (gerommel). Daarom weegt elke toonhoogte
+ *   mee met haar frequentie (× f) vóór we de vlakheid meten: zo telt ook bas-ruis als vlak.
+ *   Losse tonen (stem, muziek uit de speakers) blijven pieken, dus die scoren nog altijd laag.
  * Alleen luid ÉN ruisachtig telt als blazen: `level` (0..1). Dat stuurt de windkracht in de hele wei
  * (worldState.updateWind) en, ingezoomd op een bloem, het wegblazen van de pluisjes (Seeds.js).
  * Ruisonderdrukking en automatische volumeregeling staan uit: die zouden net het blazen wegfilteren.
@@ -55,11 +58,11 @@ export class Microphone {
       // Welke FFT-vakjes (bins) horen bij NOISE_BAND?
       const hzPerBin = this.context.sampleRate / this.analyser.fftSize;
       this.band = NOISE_BAND.map((hz) => Math.round(hz / hzPerBin));
-      this.button.textContent = '🎤 Microfoon uit';
+      this.button.setAttribute('aria-pressed', 'true');
       this.meter.hidden = false;
     } catch (error) {
       console.warn('Microfoon niet beschikbaar:', error);
-      this.button.textContent = '🎤 Geen microfoon';
+      this.button.querySelector('.label').textContent = 'No mic';
     }
     this.button.disabled = false;
   }
@@ -70,7 +73,7 @@ export class Microphone {
     this.analyser = null;
     this.level = 0;
     this.meter.hidden = true;
-    this.button.textContent = '🎤 Microfoon aan';
+    this.button.setAttribute('aria-pressed', 'false');
   }
 
   /** Elke frame: volume en ruisachtigheid meten → blaaskracht */
@@ -89,7 +92,9 @@ export class Microphone {
     let powerSum = 0;
     const [from, to] = this.band;
     for (let bin = from; bin < to; bin++) {
-      const power = 10 ** (Math.max(this.spectrum[bin], -160) / 10); // dB → vermogen
+      // dB → vermogen, × bin (∝ frequentie): bas-ruis wordt vlak. Een vaste factor (Hz per bin) mag weg:
+      // die verandert het meetkundig en het rekenkundig gemiddelde evenveel, dus niet hun verhouding.
+      const power = 10 ** (Math.max(this.spectrum[bin], -160) / 10) * bin;
       logSum += Math.log(power);
       powerSum += power;
     }

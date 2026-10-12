@@ -148,7 +148,7 @@ Bij ✅ staat hoe het werkt, bij 🟡 en ❌ wat er nog moet gebeuren.
 | Onderdeel | Status | Hoe het werkt / wat er nog moet |
 | --- | --- | --- |
 | Muis of hand: de steel buigt weg | ✅ | Muis en hand zijn elk een straal (ray) vanaf de camera. Een compute shader (`src/world/FlowerPhysics.js`) berekent voor elke bloem de duw van die stralen. De steel buigt met de shape key "Buigen" uit Blender, per bloem gedraaid naar de duwrichting. |
-| Hand via de webcam | ✅ | MediaPipe Hand Landmarker in een Web Worker (`handWorker.js`). Het midden van de handpalm stuurt de hand-aanwijzer; tussen twee detecties voorspelt de app waar de hand nu is, uit haar snelheid. Code: `src/interaction/CameraVision.js`. |
+| Hand via de webcam | ✅ | MediaPipe Hand Landmarker in een Web Worker (`handWorker.js`). Het midden van de handpalm stuurt de hand-aanwijzer; tussen twee detecties voorspelt de app waar de hand nu is, uit haar snelheid, en de cirkel glijdt er met een kritisch gedempte veer naartoe (geen sprongen bij trage detecties). Met de camera aan tekent de wei op iets lagere resolutie (pixel ratio 1,5), zodat de handherkenning de grafische kaart niet moet delen met een volle wei. Code: `src/interaction/CameraVision.js`. |
 | De steel deint na als een veer | ✅ | Per bloem een gedempte veer (a = −k·x − c·v + F) in de compute shader, met per bloem een iets andere stijfheid, zodat ze niet in hetzelfde ritme wiegen. |
 | Pluisjes bewegen mee met de bol | ✅ | Elk pluisje staat op de top van de gebogen steel (dezelfde wind en physics als de steel), dus de hele bol beweegt als één geheel mee. |
 | 's Nachts lichten pluisjes bij je cursor of hand op | ➖ | Bewust weggelaten. |
@@ -179,9 +179,10 @@ Bij ✅ staat hoe het werkt, bij 🟡 en ❌ wat er nog moet gebeuren.
 
 | Onderdeel | Status | Hoe het werkt / wat er nog moet |
 | --- | --- | --- |
-| Ambient muziek, dag en nacht | ➖ | Bewust weggelaten. |
+| Ambient muziek, dag en nacht | ✅ | Een dag- en een nachtnummer (Pixabay) spelen in een lus, elk via een eigen volumeknop (`GainNode`, Web Audio API). Die volgen `uTimeOfDay` met een equal-power crossfade (sin/cos), zodat de schemering niet zachter klinkt. Knop 🔊 om ze met een fade aan of uit te zetten. Credits in de README. Code: `src/audio/AmbientMusic.js`. |
 | Windgeruis dat luider wordt bij vlagen | ➖ | Bewust weggelaten. |
-| Startscherm "Klik om te beginnen" | ✅ | Het Blender-model en de shaders laden al terwijl het startscherm zichtbaar is; na de klik verschijnen de knoppen (camera, microfoon, windroos). |
+| Startscherm "Klik om te beginnen" | ✅ | Het Blender-model en de shaders laden al terwijl het startscherm zichtbaar is; de klik geeft de browser toestemming voor geluid; daarna start de muziek en verschijnen de knoppen (camera, microfoon, muziek, windroos). Zachte "matglas"-stijl met zwevende pluisjes; de UI-kleuren gaan mee van dag (crème/perzik) naar nacht (lavendel). Tekst op de site in het Engels. |
+| Extra: tips na het starten | ✅ | Eén voor één een kaartje (handen, blazen, inzoomen, dag en nacht) met een knop om het meteen te proberen; wat je al gedaan hebt, wordt overgeslagen. Code: `src/interaction/Hints.js`. |
 
 ### Opdracht-eisen
 
@@ -191,7 +192,7 @@ Bij ✅ staat hoe het werkt, bij 🟡 en ❌ wat er nog moet gebeuren.
 | Shader reageert op interactie | ✅ | De zonnestand volgt de pijltjes en het kamerlicht; de kijkrichting volgt de camera. Nog niet: "windsterkte kleurt de wolken". |
 | Werkende URL | 🟡 | Online via GitHub Pages, maar alleen wat gepusht is. Nog te doen: het laatste werk committen en pushen. |
 | Broncode zonder `node_modules` | ✅ | `node_modules/` staat in `.gitignore`. Bij het indienen zelf een zip maken zonder die map. |
-| README met de shader-URL's | ✅ | Beide Shadertoy-shaders (URL, maker, licentie, aanpassingen in de port) en de libraries staan erin. |
+| README met de shader-URL's | ✅ | Beide Shadertoy-shaders (URL, maker, licentie, aanpassingen in de port), de muziek (titel, maker, bron, licentie) en de libraries staan erin. |
 
 ### Extra punten (inhoud in één oogopslag)
 
@@ -206,4 +207,4 @@ Bij ✅ staat hoe het werkt, bij 🟡 en ❌ wat er nog moet gebeuren.
 | Shape keys vanuit de code | 3 | ✅ 3 | Alle drie uit Blender, live gestuurd door de code (als eigen attributen, zodat elke bloem of elk pluisje een eigen waarde heeft): **"Buigen"** op de steel (wind en physics, per bloem gedraaid naar de duwrichting), **"Open"** op het pluisje (de vlucht), **"Kaal"** op de bol (hoeveel pluisjes weg zijn). Code: `takeShapeKey` in `src/world/models.js`, `Meadow.js`, `Seeds.js`. |
 | Baking | 1 | ✅ 1 | Ambient occlusion gebakken in Blender voor de steel en de bol (`aoMap`). De lightmap voor de grond en de detailtextuur zijn bewust weggelaten: de grond wordt in code gemaakt en heeft live schaduwen die meebewegen met wind en zon. |
 | Procedureel in code | 2 | ✅ | Pluisjes op de bol volgens de gulden hoek (Fibonacci-spiraal); bloemen verspreid met een jittered grid. |
-| Audio | 2 | ➖ | Bewust weggelaten (geen extra punten). De microfoon wordt wel gebruikt als sensor: blazen = wind. |
+| Audio | 2 | 🟡 1 | Muziek die van dag naar nacht overvloeit (`src/audio/AmbientMusic.js`). Het windgeruis is bewust weggelaten. De microfoon wordt daarnaast als sensor gebruikt: blazen = wind. |

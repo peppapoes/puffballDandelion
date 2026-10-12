@@ -28,8 +28,13 @@ const CELL_SAMPLES = 4; // per vakje 4×4 pixels middelen (ruis van de camera ui
 // en tussen twee detecties voorspellen waar de hand nu is (PREDICT_MAX).
 const HAND_WORKERS = 1;
 const REACH = 1.2; // handbeweging uitvergroten: randen halen zonder je hand uit beeld te bewegen
-const FOLLOW_SPEED = 14; // afvlakken van het schokken (hoger = sneller, maar onrustiger)
-const LOST_AFTER = 500; // ms zonder hand: hand-aanwijzer laat los (ruim boven één trage detectie)
+const LOST_AFTER = 700; // ms zonder hand: hand-aanwijzer laat los (ruim boven één trage detectie)
+// Glijden: de cirkel volgt de hand met een kritisch gedempte veer (zoals de stelen), zonder
+// te springen bij elke nieuwe detectie. De veer is zo stijf dat ze ongeveer in de tijd tussen
+// twee detecties aankomt: snelle detecties = strak volgen, trage = de beweging uitsmeren.
+const GLIDE = 3.5; // stijfheid (ω) = GLIDE / tijd tussen detecties
+const GLIDE_MIN = 6; // ω nooit lager (anders sleept de cirkel te ver achter)
+const GLIDE_MAX = 30; // ω nooit hoger (anders trilt de meetruis mee)
 // Voorspellen: een detectie toont de hand zoals ze was toen het camerabeeld genomen werd (±160 ms
 // geleden). Met de snelheid tussen de laatste detecties schuiven we ze door naar "nu".
 const PREDICT_MAX = 0.2; // nooit verder dan 0,2 s vooruit voorspellen (anders schiet ze door bij stoppen)
@@ -49,6 +54,8 @@ export class CameraVision {
     this.handVelocity = { x: 0, y: 0 }; // snelheid van de hand (NDC per seconde), voor het voorspellen
     this.handTime = 0; // wanneer het camerabeeld van de laatste detectie genomen werd (ms)
     this.handSmoothed = { x: 0, y: 0 }; // afgevlakte positie (NDC)
+    this.handGlide = { x: 0, y: 0 }; // snelheid van de cirkel zelf (de veer)
+    this.detectionInterval = 0.15; // gemeten tijd tussen twee detecties (s), afgevlakt
     this.handLastSeen = 0;
     this.hasHand = false;
     this.indicator = document.getElementById('hand-indicator');
@@ -137,7 +144,7 @@ export class CameraVision {
   async start() {
     this.button.disabled = true;
     try {
-      this.setStatus('Camera starten…');
+      this.setStatus('Starting your camera…');
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 480, facingMode: 'user' },
         audio: false,
@@ -148,14 +155,14 @@ export class CameraVision {
       this.running = true;
       this.watchFrames();
       this.video.classList.add('visible');
-      this.button.textContent = '📷 Camera uit';
+      this.button.setAttribute('aria-pressed', 'true');
 
       this.startHandTracking();
       this.exposureLocked = await lockExposure(stream.getVideoTracks()[0]);
     } catch (error) {
       console.warn('Camera niet beschikbaar:', error);
       this.stopStream();
-      this.setStatus('Geen camera: de muis en de pijltjes werken gewoon verder');
+      this.setStatus('No camera found · your mouse works just as well');
     }
     this.button.disabled = false;
   }
@@ -165,7 +172,7 @@ export class CameraVision {
     this.stopStream();
     this.brightness = null;
     this.loseHand();
-    this.button.textContent = '📷 Camera aan';
+    this.button.setAttribute('aria-pressed', 'false');
     this.setStatus('');
   }
 
@@ -185,7 +192,7 @@ export class CameraVision {
   /** Workers één keer aanmaken en het handmodel laden (de eerste keer ±20 MB, daarna uit de cache) */
   startHandTracking() {
     if (this.workers.length) return;
-    this.setStatus('Handmodel laden…');
+    this.setStatus('Waking up the hand tracker…');
     for (let n = 0; n < HAND_WORKERS; n++) {
       const entry = { worker: new Worker(new URL('./handWorker.js', import.meta.url), { type: 'module' }), ready: false, busy: false };
       entry.worker.onmessage = ({ data }) => this.onWorkerMessage(entry, data);
@@ -198,12 +205,12 @@ export class CameraVision {
   onWorkerMessage(entry, data) {
     if (data.type === 'ready') {
       entry.ready = true;
-      if (!this.workerReady && this.running) this.setStatus('Hou je hand voor de camera');
+      if (!this.workerReady && this.running) this.setStatus('Hold up your hand to the camera');
       this.workerReady = true;
     } else if (data.type === 'error') {
       console.warn('Handtracking niet beschikbaar:', data.message);
       // Pas opgeven als geen enkele worker het model kon laden
-      if (++this.workerErrors === this.workers.length) this.setStatus('Handmodel kon niet laden: de muis werkt gewoon verder');
+      if (++this.workerErrors === this.workers.length) this.setStatus('Hand tracking could not load · your mouse works just as well');
     } else if (data.type === 'hand') {
       entry.busy = false;
       this.perf?.record('hand', data.ms);
@@ -246,11 +253,14 @@ export class CameraVision {
       this.handSmoothed.y = y;
       this.handVelocity.x = 0;
       this.handVelocity.y = 0;
+      this.handGlide.x = 0;
+      this.handGlide.y = 0;
       this.hasHand = true;
     } else {
       // Snelheid = verplaatsing / tijd tussen de twee camerabeelden, afgevlakt tegen meetruis
       const seconds = (timestamp - this.handTime) / 1000;
       if (seconds > 0) {
+        this.detectionInterval += (Math.min(seconds, 1) - this.detectionInterval) * 0.3;
         const vx = (x - this.handTarget.x) / seconds;
         const vy = (y - this.handTarget.y) / seconds;
         this.handVelocity.x += (vx - this.handVelocity.x) * VELOCITY_SMOOTHING;
@@ -296,9 +306,16 @@ export class CameraVision {
     const goalX = Math.max(-1, Math.min(1, this.handTarget.x + this.handVelocity.x * ahead));
     const goalY = Math.max(-1, Math.min(1, this.handTarget.y + this.handVelocity.y * ahead));
 
-    const t = 1 - Math.exp(-FOLLOW_SPEED * delta);
-    this.handSmoothed.x += (goalX - this.handSmoothed.x) * t;
-    this.handSmoothed.y += (goalY - this.handSmoothed.y) * t;
+    // Kritisch gedempte veer naar het doel: a = ω²·(doel − plek) − 2ω·v (semi-impliciete Euler).
+    // Geen knik in de beweging als er een nieuwe detectie binnenkomt, alleen een zachte bocht.
+    const omega = Math.min(GLIDE_MAX, Math.max(GLIDE_MIN, GLIDE / this.detectionInterval));
+    const dt = Math.min(delta, 0.05); // na een haperend frame niet doorschieten
+    for (const axis of ['x', 'y']) {
+      const goal = axis === 'x' ? goalX : goalY;
+      const accel = omega * omega * (goal - this.handSmoothed[axis]) - 2 * omega * this.handGlide[axis];
+      this.handGlide[axis] += accel * dt;
+      this.handSmoothed[axis] += this.handGlide[axis] * dt;
+    }
     this.handPointer.moveTo(this.handSmoothed.x, this.handSmoothed.y);
 
     // NDC → pixels voor de cirkel op het scherm
@@ -319,14 +336,15 @@ export class CameraVision {
     // Ook in het ?debug-paneel, om af te stellen
     const measured = `licht ${Math.round(this.brightness * 100)}% · contrast ${Math.round(this.contrast * 100)}%`;
     this.perf?.info('kamer', measured);
-    if (!this.workerReady) return; // eerst "Handmodel laden…" laten staan
+    if (!this.workerReady) return; // eerst "Waking up the hand tracker…" laten staan
+    // Op het scherm geen percentages (die staan in ?debug), wel wat de kamer met de wei doet
     if (isManualOverride()) {
-      this.setStatus(`Kamer: ${measured} · pijltjes hebben even voorrang`);
+      this.setStatus('Arrow keys are in charge for a moment');
       return;
     }
     const t = daylightFromRoom(this.brightness, this.contrast);
-    const moment = t < 0.25 ? 'nacht' : t < 0.6 ? 'schemering' : 'dag';
-    this.setStatus(`Kamer: ${measured} → ${moment}`);
+    const moment = t < 0.25 ? 'night 🌙' : t < 0.6 ? 'dusk 🌇' : 'day ☀️';
+    this.setStatus(`Your room says: ${moment}`);
   }
 
   setStatus(text) {
