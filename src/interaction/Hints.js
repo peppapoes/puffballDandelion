@@ -3,6 +3,7 @@ import { isManualOverride } from '../state/worldState.js';
 const FIRST_DELAY = 4; // s na de start: eerst even rondkijken
 const SHOW_TIME = 14; // s: zo lang blijft een tip staan
 const PAUSE = 8; // s tussen twee tips
+const MOUSE_TRAVEL = 1500; // px muisbeweging over de wei: dan heb je de eerste tip al ontdekt
 
 /**
  * Tips na het starten: een zacht kaartje onderaan dat vertelt wat je nog kan proberen,
@@ -14,8 +15,20 @@ const PAUSE = 8; // s tussen twee tips
  */
 export class Hints {
   constructor({ cameraVision, microphone, flowerFocus }) {
+    // Hoeveel heb je de muis al door de wei bewogen (px)? Zo weten we of de eerste tip nog nodig is
+    this.mouseTravel = 0;
+    this.canvas = document.getElementById('scene');
+    this.canvas.addEventListener('pointermove', (event) => {
+      if (event.pointerType === 'mouse') this.mouseTravel += Math.hypot(event.movementX, event.movementY);
+    });
+
     // done(): is deze tip al uitgevoerd? action: wat de knop op het kaartje doet
     this.hints = [
+      {
+        icon: '🌾',
+        text: 'Move your cursor through the meadow and watch the flowers sway',
+        done: () => this.mouseTravel > MOUSE_TRAVEL,
+      },
       {
         icon: '🖐️',
         text: 'Wave through the dandelions with your own hands',

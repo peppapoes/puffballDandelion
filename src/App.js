@@ -35,10 +35,10 @@ const FOG_FAR = 70;
 const MOUSE_TOUCH_MARGIN = 0.3;
 const HAND_TOUCH_MARGIN = 1.6;
 
-// Resolutie (pixels per CSS-pixel). Met de camera aan iets lager: de handherkenning moet het
-// camerabeeld via de grafische kaart lezen, en wacht anders op de wei (gemeten: ±20% sneller).
-const PIXEL_RATIO = 2;
-const PIXEL_RATIO_CAMERA = 1.5;
+// Met de camera aan maar elke 2de frame een nieuw beeld (±30 fps): de grafische kaart heeft dan
+// tijd tussendoor, en de handherkenning wordt ±2× sneller (gemeten: ±100 i.p.v. ±200 ms per
+// detectie). 1 = altijd elke frame (zoals zonder camera).
+const CAMERA_FRAME_SKIP = 2;
 
 /**
  * Houdt de hele installatie samen: renderer, scène, camera en de render-loop.
@@ -61,7 +61,7 @@ export class App {
     this.meadow = await Meadow.create(this.renderer); // laadt het Blender-model (public/models/puffballSimple.glb)
     // Schaduwen van de bloemen op de grond: een compute shader maakt er elke frame een kaart van
     this.flowerShadows = new FlowerShadows(this.renderer, this.meadow);
-    this.scene.add(createGround(this.flowerShadows));
+    this.scene.add(createGround(this.renderer, this.flowerShadows));
     this.scene.add(this.meadow.group);
 
     // Klik op een bloem: vloeiend inzoomen; Escape of klik ernaast: terug naar de wei
@@ -132,6 +132,11 @@ export class App {
   }
 
   update(timestamp) {
+    // Camera aan: frames overslaan. De timer loopt niet mee, dus de volgende delta is de echte
+    // tijd sinds het vorige getekende frame (physics en wind blijven even snel)
+    this.frameCount = (this.frameCount ?? 0) + 1;
+    if (this.cameraVision.running && this.frameCount % CAMERA_FRAME_SKIP !== 0) return;
+
     this.timer.update(timestamp);
     const delta = this.timer.getDelta();
 
@@ -152,7 +157,6 @@ export class App {
     // Na de camera: webcam verwerken (GPU) en hand volgen, stralen bijwerken, bloemen laten reageren
     perf.begin('camera');
     this.cameraVision.update(delta);
-    this.updatePixelRatio();
     perf.end('camera');
 
     perf.begin('physics');
@@ -203,15 +207,6 @@ export class App {
     if (night === this.night) return;
     this.night = night;
     document.body.classList.toggle('night', night);
-  }
-
-  /** Camera aan: iets lagere resolutie, zodat de handherkenning de grafische kaart niet moet delen met een volle wei */
-  updatePixelRatio() {
-    const max = this.cameraVision.running ? PIXEL_RATIO_CAMERA : PIXEL_RATIO;
-    const ratio = Math.min(window.devicePixelRatio, max);
-    if (ratio === this.renderer.getPixelRatio()) return;
-    this.renderer.setPixelRatio(ratio);
-    this.resizeSky(); // de lucht rekent op een vast deel van de pixels
   }
 
   resizeSky() {

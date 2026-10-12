@@ -1,3 +1,5 @@
+import { getAudioContext } from '../audio/audioContext.js';
+
 // Volume (RMS van het geluidssignaal)
 const LOUD_MIN = 0.008; // daaronder: stilte of achtergrondgeluid
 const LOUD_MAX = 0.06; // hard blazen (op een armlengte van de laptop)
@@ -48,11 +50,12 @@ export class Microphone {
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
       });
-      this.context = new AudioContext();
+      this.context = getAudioContext(); // gedeeld met de muziek (audioContext.js)
       this.analyser = this.context.createAnalyser();
       this.analyser.fftSize = 2048;
       this.analyser.smoothingTimeConstant = 0.3;
-      this.context.createMediaStreamSource(this.stream).connect(this.analyser);
+      this.source = this.context.createMediaStreamSource(this.stream);
+      this.source.connect(this.analyser);
       this.samples = new Float32Array(this.analyser.fftSize);
       this.spectrum = new Float32Array(this.analyser.frequencyBinCount);
       // Welke FFT-vakjes (bins) horen bij NOISE_BAND?
@@ -69,7 +72,7 @@ export class Microphone {
 
   stop() {
     this.stream?.getTracks().forEach((track) => track.stop());
-    this.context?.close();
+    this.source?.disconnect(); // niet de context sluiten: die is gedeeld met de muziek
     this.analyser = null;
     this.level = 0;
     this.meter.hidden = true;

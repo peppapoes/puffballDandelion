@@ -1,9 +1,12 @@
 import { uTimeOfDay } from '../state/worldState.js';
+import { getAudioContext } from './audioContext.js';
 
 const DAY_URL = './audio/day.mp3'; // "Calm Ambient Dreamscape" door morgan-ambient (Pixabay)
 const NIGHT_URL = './audio/night.mp3'; // "Ambient - Ambient Music" door leberch (Pixabay)
 const VOLUME = 0.5; // totaalvolume (0..1): zacht, het is achtergrondmuziek
 const FADE = 0.4; // s: tijdsconstante van het aan- en uitzetten (geen harde knip)
+const CROSSFADE_GLIDE = 0.1; // s: tijdsconstante waarmee het volume naar de nieuwe dag/nacht-mix glijdt
+const CROSSFADE_STEP = 0.005; // pas bijsturen als de mix zoveel veranderd is
 
 /**
  * Ambient muziek die meegaat met dag en nacht (Web Audio API).
@@ -30,7 +33,7 @@ export class AmbientMusic {
 
   /** Na de klik op het startscherm: browsers laten pas geluid toe na een klik van de gebruiker */
   start() {
-    this.context = new AudioContext();
+    this.context = getAudioContext(); // gedeeld met de microfoon (audioContext.js)
     this.master = this.context.createGain();
     this.master.gain.value = VOLUME;
     this.master.connect(this.context.destination);
@@ -45,6 +48,7 @@ export class AmbientMusic {
     const audio = new Audio(url);
     audio.loop = true;
     const gain = this.context.createGain();
+    gain.gain.value = 0; // stil beginnen: update() laat het volume zacht naar de dag/nacht-mix glijden
     this.context.createMediaElementSource(audio).connect(gain).connect(this.master);
     audio.play().catch((error) => console.warn('Muziek kan niet starten:', error));
     return { audio, gain };
@@ -71,11 +75,19 @@ export class AmbientMusic {
    * Equal-power crossfade: sinus en cosinus in plaats van t en 1 − t. Bij een lineaire mix
    * klinkt de schemering zachter (twee keer half volume klinkt stiller dan één keer vol);
    * met sin² + cos² = 1 blijft het totale geluidsvermogen overal hetzelfde.
+   *
+   * Niet gain.value = … elke frame: dat geeft kleine sprongetjes in het volume (kraken).
+   * setTargetAtTime laat de geluidsthread zelf vloeiend naar de nieuwe waarde glijden,
+   * en alleen als de mix echt veranderd is.
    */
   update() {
     if (!this.context) return;
-    const angle = (uTimeOfDay.value * Math.PI) / 2;
-    this.day.gain.gain.value = Math.sin(angle);
-    this.night.gain.gain.value = Math.cos(angle);
+    const t = uTimeOfDay.value;
+    if (Math.abs(t - (this.lastMix ?? -1)) < CROSSFADE_STEP) return;
+    this.lastMix = t;
+    const angle = (t * Math.PI) / 2;
+    const now = this.context.currentTime;
+    this.day.gain.gain.setTargetAtTime(Math.sin(angle), now, CROSSFADE_GLIDE);
+    this.night.gain.gain.setTargetAtTime(Math.cos(angle), now, CROSSFADE_GLIDE);
   }
 }
