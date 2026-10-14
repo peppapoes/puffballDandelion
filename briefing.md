@@ -148,7 +148,7 @@ Bij ✅ staat hoe het werkt, bij 🟡 en ❌ wat er nog moet gebeuren.
 | Onderdeel | Status | Hoe het werkt / wat er nog moet |
 | --- | --- | --- |
 | Muis of hand: de steel buigt weg | ✅ | Muis en hand zijn elk een straal (ray) vanaf de camera. Een compute shader (`src/world/FlowerPhysics.js`) berekent voor elke bloem de duw van die stralen. De steel buigt met de shape key "Buigen" uit Blender, per bloem gedraaid naar de duwrichting. |
-| Hand via de webcam | ✅ | MediaPipe Hand Landmarker in een Web Worker (`handWorker.js`). Het midden van de handpalm stuurt de hand-aanwijzer; tussen twee detecties voorspelt de app waar de hand nu is, uit haar snelheid, en de cirkel glijdt er met een kritisch gedempte veer naartoe (geen sprongen bij trage detecties). Met de camera aan tekent de wei maar elke tweede frame (±30 fps, `CAMERA_FRAME_SKIP` in `App.js`), zodat de handherkenning de grafische kaart niet moet delen met een volle wei. Code: `src/interaction/CameraVision.js`. |
+| Hand via de webcam | ✅ | MediaPipe Hand Landmarker in een Web Worker (`handWorker.js`). Het midden van de handpalm stuurt de hand-aanwijzer; tussen twee detecties voorspelt de app waar de hand nu is, uit haar snelheid, en de cirkel glijdt er met een kritisch gedempte veer naartoe (geen sprongen bij trage detecties). De veer gebruikt de exacte formule in plaats van stapjes: met stapjes werd ze instabiel bij snelle detecties en schoot de cirkel van het scherm. Met de camera aan tekent de wei maar elke tweede frame (±30 fps, `CAMERA_FRAME_SKIP` in `App.js`), zodat de handherkenning de grafische kaart niet moet delen met een volle wei. Code: `src/interaction/CameraVision.js`. |
 | De steel deint na als een veer | ✅ | Per bloem een gedempte veer (a = −k·x − c·v + F) in de compute shader, met per bloem een iets andere stijfheid, zodat ze niet in hetzelfde ritme wiegen. |
 | Pluisjes bewegen mee met de bol | ✅ | Elk pluisje staat op de top van de gebogen steel (dezelfde wind en physics als de steel), dus de hele bol beweegt als één geheel mee. |
 | 's Nachts lichten pluisjes bij je cursor of hand op | ➖ | Bewust weggelaten. |
@@ -189,8 +189,8 @@ Bij ✅ staat hoe het werkt, bij 🟡 en ❌ wat er nog moet gebeuren.
 | Eis | Status | Hoe het werkt / wat er nog moet |
 | --- | --- | --- |
 | Shadertoy-shader geport naar WebGPU | ✅ | Circadian in TSL met `WebGPURenderer`, valt terug op WebGL2. Origineel in `shaders/original/circadian.glsl`. |
-| Shader reageert op interactie | ✅ | De zonnestand volgt de pijltjes en het kamerlicht; de kijkrichting volgt de camera. Nog niet: "windsterkte kleurt de wolken". |
-| Werkende URL | 🟡 | Online via GitHub Pages, maar alleen wat gepusht is. Nog te doen: het laatste werk committen en pushen. |
+| Shader reageert op interactie | ✅ | De zonnestand volgt de pijltjes en het kamerlicht; de kijkrichting volgt de camera. |
+| Werkende URL | ✅ | Online via GitHub Pages (https://delatterfemke.be/puffballDandelion/); elke push naar `main` wordt automatisch gebouwd en gepubliceerd. Gecontroleerd: de live versie is de laatste build. |
 | Broncode zonder `node_modules` | ✅ | `node_modules/` staat in `.gitignore`. Bij het indienen zelf een zip maken zonder die map. |
 | README met de shader-URL's | ✅ | Beide Shadertoy-shaders (URL, maker, licentie, aanpassingen in de port), de muziek (titel, maker, bron, licentie) en de libraries staan erin. |
 

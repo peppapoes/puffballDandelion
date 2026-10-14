@@ -206,13 +206,6 @@ export function setDaylightFromRoom(brightness, contrast) {
   cycleTarget = best;
 }
 
-/** Meteen naar een moment in de cyclus springen (handig om te testen in de console) */
-export function jumpToCycle(value) {
-  cycle = cycleTarget = value;
-  uTimeOfDay.value = timeOfDayFromCycle(cycle);
-  updateSun();
-}
-
 export function updateWorldState(delta) {
   cycleTarget += heldDirection * CYCLE_HOLD_SPEED * delta;
   cycleTarget = MathUtils.clamp(cycleTarget, cycle - CYCLE_MAX_AHEAD, cycle + CYCLE_MAX_AHEAD);

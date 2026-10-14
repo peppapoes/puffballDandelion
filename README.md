@@ -62,6 +62,8 @@ Bouwen: `npm run build` (output in `dist/`). Elke push naar `main` wordt via Git
 
 ## Projectstructuur
 
+Hoe alles samenwerkt (lagen, gedeelde toestand, één frame, data van invoer tot beeld): zie [architectuur.md](architectuur.md).
+
 ```
 src/
   main.js              startpunt + startscherm

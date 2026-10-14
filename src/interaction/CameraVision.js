@@ -306,15 +306,21 @@ export class CameraVision {
     const goalX = Math.max(-1, Math.min(1, this.handTarget.x + this.handVelocity.x * ahead));
     const goalY = Math.max(-1, Math.min(1, this.handTarget.y + this.handVelocity.y * ahead));
 
-    // Kritisch gedempte veer naar het doel: a = ω²·(doel − plek) − 2ω·v (semi-impliciete Euler).
-    // Geen knik in de beweging als er een nieuwe detectie binnenkomt, alleen een zachte bocht.
+    // Kritisch gedempte veer naar het doel. Geen knik in de beweging als er een nieuwe detectie
+    // binnenkomt, alleen een zachte bocht.
+    // Exacte oplossing in plaats van stapjes (Euler): met stapjes werd de veer instabiel zodra
+    // stijfheid × frametijd ≥ 1 (snelle detecties + 30 fps), en schoot de cirkel van het scherm.
+    // De exacte formule klopt bij elke frametijd:
+    //   e = plek − doel,  e(t) = (e + (v + ω·e)·t)·e^(−ωt),  v(t) = (v − ω·(v + ω·e)·t)·e^(−ωt)
     const omega = Math.min(GLIDE_MAX, Math.max(GLIDE_MIN, GLIDE / this.detectionInterval));
-    const dt = Math.min(delta, 0.05); // na een haperend frame niet doorschieten
+    const decay = Math.exp(-omega * delta);
     for (const axis of ['x', 'y']) {
       const goal = axis === 'x' ? goalX : goalY;
-      const accel = omega * omega * (goal - this.handSmoothed[axis]) - 2 * omega * this.handGlide[axis];
-      this.handGlide[axis] += accel * dt;
-      this.handSmoothed[axis] += this.handGlide[axis] * dt;
+      const e = this.handSmoothed[axis] - goal;
+      const v = this.handGlide[axis];
+      const k = (v + omega * e) * delta;
+      this.handSmoothed[axis] = goal + (e + k) * decay;
+      this.handGlide[axis] = (v - omega * k) * decay;
     }
     this.handPointer.moveTo(this.handSmoothed.x, this.handSmoothed.y);
 
