@@ -182,7 +182,7 @@ Bij ✅ staat hoe het werkt, bij 🟡 en ❌ wat er nog moet gebeuren.
 | Ambient muziek, dag en nacht | ✅ | Een dag- en een nachtnummer (Pixabay) spelen in een lus, elk via een eigen volumeknop (`GainNode`, Web Audio API). Die volgen `uTimeOfDay` met een equal-power crossfade (sin/cos), zodat de schemering niet zachter klinkt. Knop 🔊 om ze met een fade aan of uit te zetten. Credits in de README. Code: `src/audio/AmbientMusic.js`. |
 | Windgeruis dat luider wordt bij vlagen | ➖ | Bewust weggelaten. |
 | Startscherm "Klik om te beginnen" | ✅ | Het Blender-model en de shaders laden al terwijl het startscherm zichtbaar is; de klik geeft de browser toestemming voor geluid; daarna start de muziek en verschijnen de knoppen (camera, microfoon, muziek, windroos). Zachte "matglas"-stijl met zwevende pluisjes; de UI-kleuren gaan mee van dag (crème/perzik) naar nacht (lavendel). Tekst op de site in het Engels. |
-| Extra: tips na het starten | ✅ | Eén voor één een kaartje (muis door de wei, handen, blazen, inzoomen, dag en nacht) met een knop om het meteen te proberen; wat je al gedaan hebt, wordt overgeslagen. Code: `src/interaction/Hints.js`. |
+| Extra: tips na het starten | ✅ | Eerst in het midden: "Drag to look around · scroll to zoom" (weg zodra je de camera zelf beweegt of inzoomt). Ingezoomd op een bloem: 6 s bovenaan "Click outside the puffball or press Esc to go back to the meadow". Daarna onderaan één voor één een kaartje (muis door de wei, handen, blazen, inzoomen, dag en nacht) met een knop om het meteen te proberen; wat je al gedaan hebt, wordt overgeslagen. Code: `src/interaction/Hints.js`. |
 
 ### Opdracht-eisen
 

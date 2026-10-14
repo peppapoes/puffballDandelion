@@ -345,7 +345,7 @@ export class CameraVision {
     if (!this.workerReady) return; // eerst "Waking up the hand tracker…" laten staan
     // Op het scherm geen percentages (die staan in ?debug), wel wat de kamer met de wei doet
     if (isManualOverride()) {
-      this.setStatus('Arrow keys are in charge for a moment');
+      this.setStatus(''); // de pijltjes hebben even voorrang: dan zeggen we niets over de kamer
       return;
     }
     const t = daylightFromRoom(this.brightness, this.contrast);

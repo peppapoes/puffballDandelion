@@ -93,7 +93,9 @@ export class App {
     // Muziek die van dag naar nacht overvloeit (start pas na de klik op het startscherm)
     this.music = new AmbientMusic();
     // Tips na het starten: wat kan je nog proberen? (met een knop om het meteen te doen)
-    this.hints = new Hints({ cameraVision: this.cameraVision, microphone: this.microphone, flowerFocus: this.flowerFocus });
+    this.hints = new Hints({
+      cameraVision: this.cameraVision, microphone: this.microphone, flowerFocus: this.flowerFocus, controls: this.controls,
+    });
     this.updateNightClass(); // het startscherm meteen in de kleuren van dag of nacht
 
     initWorldStateInput();

@@ -44,6 +44,17 @@
     <!-- Windroos: sleep om de wind uit een andere hoek te laten komen (WindRose.js) -->
     <div id="wind-rose" class="glass-soft" hidden title="Drag the dot to choose where the wind comes from · blow into the microphone for stronger wind"></div>
 
+    <!-- Eerste tip, in het midden (Hints.js): rondkijken en zoomen. Klikken en slepen gaan er gewoon doorheen. -->
+    <div id="center-hint" hidden aria-live="polite">
+      <svg class="icon center-hint-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="6" /><line x1="12" x2="12" y1="7" y2="10" /></svg>
+      <p>Drag to look around · scroll to zoom</p>
+    </div>
+
+    <!-- Ingezoomd op één bloem (Hints.js): hoe kom je terug? Bovenaan, zodat de bol vrij blijft. -->
+    <div id="focus-hint" hidden aria-live="polite">
+      <p>Click outside the puffball or press <kbd>Esc</kbd> to go back to the meadow</p>
+    </div>
+
     <!-- Tips na het starten (Hints.js): een zacht kaartje met een knop om het meteen te proberen -->
     <div id="hint" class="glass" role="status" hidden>
       <span class="hint-icon" aria-hidden="true"></span>
@@ -59,17 +70,17 @@
       <div class="button-row">
         <!-- Webcam: handtracking + licht van de kamer (CameraVision.js) -->
         <button id="camera-button" class="pill" type="button" hidden aria-pressed="false" title="Use your webcam: move your hand through the flowers, and the light in your room sets day or night">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="3" /></svg>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="3" /><line class="off-line" x1="3" y1="3" x2="21" y2="21" /></svg>
           <span class="label">Hands</span>
         </button>
         <!-- Microfoon: blazen = wind (en ingezoomd: pluisjes wegblazen) (Microphone.js) -->
         <button id="mic-button" class="pill" type="button" hidden aria-pressed="false" title="Use your microphone: blow to make the wind stronger, or to blow the seeds off a flower">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /><line class="off-line" x1="3" y1="3" x2="21" y2="21" /></svg>
           <span class="label">Blow</span>
         </button>
         <!-- Muziek (dag ↔ nacht) aan of uit (AmbientMusic.js) -->
         <button id="music-button" class="pill" type="button" hidden aria-pressed="true" title="Music that drifts from day to night">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /><line class="off-line" x1="3" y1="3" x2="21" y2="21" /></svg>
           <span class="label">Music</span>
         </button>
       </div>

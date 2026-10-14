@@ -17,11 +17,11 @@ Een interactieve sfeerinstallatie in de browser: een wei vol paardenbloemen in p
 | Knop **Blow** (microfoon) en blazen | Hoe harder je blaast, hoe harder de wind over de hele wei (de roos toont de windkracht) |
 | Slepen / scrollen | Rond de wei draaien en zoomen (begrensd) |
 | Klik op een bloem | De camera zoomt vloeiend in op die pluizenbol; de bloem beweegt nog maar zachtjes, de rest van de wei waait door. Ingezoomd: slepen = rond de bloem draaien, scrollen = dichterbij of verder |
-| Escape of klik naast de bloem | Vloeiend terug naar je plek in de wei |
+| Escape of klik naast de bloem | Vloeiend terug naar je plek in de wei (ingezoomd staat dat 6 s bovenaan als tip) |
 | Ingezoomd: wrijf met muis of hand over de bol | Hoe sneller je wrijft, hoe meer pluisjes loskomen; ze openen hun parachuutje en dwarrelen traag weg met de wind. De bol wordt kaler en blijft kaal, ook als je uitzoomt |
 | Knop **Blow**, ingezoomd blazen | Hoe harder je blaast, hoe meer pluisjes wegvliegen, eerst aan jouw kant van de bol. Het balkje onder de knop toont hoe hard de microfoon je hoort blazen; praten telt niet |
 | Knop **Music** | De muziek start na de klik op het startscherm en vloeit mee van dag- naar nachtmuziek; de knop zet ze met een korte fade aan of uit |
-| Tips onderaan | Na het starten verschijnt één voor één een tip (muis door de wei, handen, blazen, inzoomen, dag en nacht), met een knop om het meteen te proberen. Wat je al gedaan hebt, wordt overgeslagen |
+| Tips | Eerst in het midden van het scherm: slepen om rond te kijken, scrollen om te zoomen (verdwijnt zodra je dat doet). Daarna onderaan één voor één een tip (muis door de wei, handen, blazen, inzoomen, dag en nacht), met een knop om het meteen te proberen. Wat je al gedaan hebt, wordt overgeslagen |
 | `?debug` achter de URL | Prestatiepaneel; in de console meet `await app.benchmark()` de echte kost per frame |
 
 ## Techniek

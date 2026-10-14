@@ -25,7 +25,13 @@ const CROSSFADE_STEP = 0.005; // pas bijsturen als de mix zoveel veranderd is
  */
 export class AmbientMusic {
   constructor() {
-    this.context = null;
+    // De AudioContext al aanmaken tijdens het laden: dat opent de geluidskaart en blokkeert de
+    // pagina even (gemeten 0,3–0,7 s). Achter het startscherm valt dat niet op; na de klik wel.
+    // Tot de klik blijft de context gepauzeerd (browsers laten geen geluid toe zonder klik).
+    this.context = getAudioContext();
+    this.master = this.context.createGain();
+    this.master.gain.value = VOLUME;
+    this.master.connect(this.context.destination);
     this.on = true;
     this.button = document.getElementById('music-button');
     this.button.addEventListener('click', () => this.toggle());
@@ -33,10 +39,7 @@ export class AmbientMusic {
 
   /** Na de klik op het startscherm: browsers laten pas geluid toe na een klik van de gebruiker */
   start() {
-    this.context = getAudioContext(); // gedeeld met de microfoon (audioContext.js)
-    this.master = this.context.createGain();
-    this.master.gain.value = VOLUME;
-    this.master.connect(this.context.destination);
+    getAudioContext(); // binnen de klik: de gepauzeerde context hervatten (resume)
     this.day = this.createTrack(DAY_URL);
     this.night = this.createTrack(NIGHT_URL);
     this.update();
@@ -81,7 +84,7 @@ export class AmbientMusic {
    * en alleen als de mix echt veranderd is.
    */
   update() {
-    if (!this.context) return;
+    if (!this.day) return; // nummers starten pas na de klik
     const t = uTimeOfDay.value;
     if (Math.abs(t - (this.lastMix ?? -1)) < CROSSFADE_STEP) return;
     this.lastMix = t;
