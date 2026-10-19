@@ -171,9 +171,9 @@ export class App {
     // Blazen = wind: hoe harder, hoe harder de wind (in de hele wei); richting uit de windroos
     updateWind(delta, this.microphone.level);
     this.windRose.update();
-    // Pluisjes loskrijgen alleen als je ingezoomd bent (en de camera aangekomen is)
+    // Pluisjes loskrijgen: ingezoomd (wrijven, blazen) of in de wei (een paar bij het zwaaien)
     const focused = this.flowerFocus.flight ? null : this.flowerFocus.focused;
-    this.seeds.update(delta, this.camera, focused, this.microphone.level);
+    this.seeds.update(delta, this.camera, focused, this.microphone.level, this.pointers);
     perf.end('physics');
 
     perf.begin('render');

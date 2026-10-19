@@ -13,11 +13,14 @@ const RUB_MIN_SPEED = 0.6; // m/s: trager wrijven doet niets
 const RUB_RATE = 1.2; // kans per seconde per m/s boven RUB_MIN_SPEED: hoe sneller, hoe meer
 const RUB_REACH = 0.6; // × aanraakgebied van de aanwijzer (de hand raakt veel meer pluisjes dan de muis)
 const RUB_REACH_MIN = 0.15; // m
+// Zwaaien door de wei (niet ingezoomd): een paar pluisjes van de bollen die je raakt
+const WAVE_RATE = 0.06; // × RUB_RATE: veel minder dan ingezoomd wrijven, "een paar" per bloem
+const WAVE_FLOWERS = 3; // hoogstens zoveel bloemen per frame (de snelst geraakte eerst)
 // Loskomen door blazen (microfoon)
 const BLOW_RATE = 4; // kans per seconde bij hard blazen
 const BLOW_PUSH = 1.5; // m/s weg van de camera
 // Vliegen
-const GENERATIONS = 4; // vliegplekken per pluisje: zo vaak kan het tegelijk onderweg zijn
+const GENERATIONS = 6; // vliegplekken per pluisje-nummer: zo vaak kan het tegelijk onderweg zijn (ook van verschillende bloemen)
 const POOL = SEEDS_PER_HEAD * GENERATIONS;
 const LIFETIME = 20; // seconden in de lucht, daarna weg
 const SHRINK_TIME = 2; // laatste seconden: krimpen tot niets (zacht verdwijnen)
@@ -30,7 +33,10 @@ const FLUTTER = 0.15; // m/s: zacht fladderen
 const MAX_PUSH = 3; // m/s: beginsnelheid begrenzen
 
 /**
- * Pluisjes wegwrijven of wegblazen (alleen op de bloem waarop ingezoomd is).
+ * Pluisjes wegwrijven of wegblazen.
+ * - Ingezoomd op een bloem: wrijven (muis, hand) en blazen (microfoon), de bol wordt kaal.
+ * - In de wei: zwaai je met de cursor of hand snel door de bollen, dan komen er bij de bollen
+ *   die je raakt een paar pluisjes los (WAVE_RATE). Alleen de dichtste bollen (met echte pluisjes).
  *
  * Twee compute shaders op de GPU:
  * 1. detach (90 threads, één per pluisje van de gekozen bloem): wrijven en blazen geven
@@ -52,12 +58,17 @@ export class Seeds {
     this.uDelta = uniform(0);
     this.uBlow = uniform(0); // 0..1, van de microfoon
     this.uCameraPosition = uniform(new THREE.Vector3());
-    this.uSlot = uniform(0); // plek in meadow.seedState van de gekozen bloem
+    this.uSlot = uniform(0); // plek in meadow.seedState van de bloem
+    this.uFlower = uniform(-1); // welke bloem: de ingezoomde, of in de wei een bloem die je raakt
+    this.uRubRate = uniform(RUB_RATE); // ingezoomd RUB_RATE, in de wei RUB_RATE × WAVE_RATE
 
     // Kale bloemen onthouden: welke bloem op welke plek (JavaScript beslist, de GPU leest meadow.pluckedSlot)
     this.slotOfFlower = new Map(); // bloemnummer → plek
     this.flowerOfSlot = new Array(PLUCK_SLOTS).fill(-1); // plek → bloemnummer
     this.nextSlot = 0; // vol? dan de oudste plek hergebruiken (om de beurt)
+    // Bloemen waarop je ingezoomd hebt: hun plek wordt niet hergebruikt door het zwaaien in de wei
+    // (anders wordt een kaal gewreven bloem weer vol als je even door de wei zwaait)
+    this.protectedFlowers = new Set();
 
     // Vliegende pluisjes: positie + leeftijd (w < 0 = niet in gebruik), snelheid + grootte, draaiing op de bol
     const positions = new Float32Array(POOL * 4);
@@ -77,13 +88,21 @@ export class Seeds {
 
   /**
    * Plek in meadow.seedState voor bloem i. Al eens aangeraakt: dezelfde plek (ze blijft kaal).
-   * Anders een nieuwe plek; zijn ze allemaal bezet, dan de oudste (die bloem is dan weer vol).
+   * Anders een nieuwe plek; zijn ze allemaal bezet, dan de oudste (die bloem is dan weer vol),
+   * maar nooit die van een bloem waarop je ingezoomd hebt (tenzij alle plekken zo'n bloem hebben).
    */
   slotFor(i) {
     if (this.slotOfFlower.has(i)) return this.slotOfFlower.get(i);
 
-    const slot = this.nextSlot;
-    this.nextSlot = (this.nextSlot + 1) % PLUCK_SLOTS;
+    let slot = this.nextSlot;
+    for (let tries = 0; tries < PLUCK_SLOTS; tries++) {
+      const candidate = (this.nextSlot + tries) % PLUCK_SLOTS;
+      if (!this.protectedFlowers.has(this.flowerOfSlot[candidate])) {
+        slot = candidate;
+        break;
+      }
+    }
+    this.nextSlot = (slot + 1) % PLUCK_SLOTS;
     const previous = this.flowerOfSlot[slot];
     const lookup = this.meadow.pluckedSlot.value;
     if (previous >= 0) {
@@ -107,10 +126,10 @@ export class Seeds {
     return Fn(() => {
       const k = instanceIndex;
       const state = meadow.seedState.element(int(this.uSlot).mul(SEEDS_PER_HEAD).add(int(k)));
-      const focus = meadow.uFocusIndex;
+      const focus = this.uFlower;
       const i = int(focus);
 
-      // Deze plek was van een andere bloem: voor de gekozen bloem begint ze vol
+      // Deze plek was van een andere bloem: voor deze bloem begint ze vol
       If(state.w.notEqual(focus), () => {
         state.assign(vec4(1, 0, state.z, focus));
       });
@@ -139,7 +158,7 @@ export class Seeds {
             const previous = pointer.previousOrigin.add(pointer.previousDirection.mul(depth));
             const motion = closest.sub(previous).div(max(uDelta, 1e-4)).toVar();
             const near = float(1).sub(distance.div(reach));
-            rate.addAssign(max(length(motion).sub(RUB_MIN_SPEED), 0).mul(RUB_RATE).mul(near));
+            rate.addAssign(max(length(motion).sub(RUB_MIN_SPEED), 0).mul(this.uRubRate).mul(near));
             push.addAssign(motion.mul(0.3)); // meegesleurd in de wrijfrichting
           });
         });
@@ -244,18 +263,67 @@ export class Seeds {
     })();
   }
 
-  /** Elke frame: flower = bloem waarop ingezoomd is (of null), blow = blaaskracht van de microfoon (0..1) */
-  update(delta, camera, flower, blow) {
+  /**
+   * Elke frame. flower = bloem waarop ingezoomd is (of null), blow = blaaskracht van de microfoon (0..1),
+   * pointers = muis en hand (Pointer.js)
+   */
+  update(delta, camera, flower, blow, pointers) {
     this.uDelta.value = Math.min(delta, 1 / 30);
     if (this.uDelta.value <= 0) return;
-    this.uBlow.value = flower !== null ? blow : 0;
     this.uCameraPosition.value.copy(camera.position);
 
     if (flower !== null) {
-      this.uSlot.value = this.slotFor(flower);
-      this.renderer.compute(this.detachCompute);
+      // Ingezoomd: wrijven en blazen op deze ene bloem
+      this.protectedFlowers.add(flower);
+      this.detach(flower, RUB_RATE, blow);
+    } else {
+      // In de wei: een paar pluisjes van de bollen waar je snel langs zwaait
+      for (const i of this.wavedFlowers(pointers)) this.detach(i, RUB_RATE * WAVE_RATE, 0);
     }
     this.renderer.compute(this.flightCompute);
+  }
+
+  /** De compute shader "loskomen" voor één bloem (90 threads, één per pluisje) */
+  detach(i, rubRate, blow) {
+    this.uFlower.value = i;
+    this.uSlot.value = this.slotFor(i);
+    this.uRubRate.value = rubRate;
+    this.uBlow.value = blow;
+    this.renderer.compute(this.detachCompute);
+  }
+
+  /**
+   * Welke bollen raak je nu snel genoeg met de muis of de hand? Op de CPU, ruw: de bol in rust
+   * (zonder wind), en alleen de dichtste bollen met echte pluisjes (meadow.nearSlots). De shader
+   * kijkt daarna per pluisje precies na of de aanwijzer er snel genoeg langs gaat.
+   * Hoogstens WAVE_FLOWERS bloemen, de snelst geraakte eerst.
+   */
+  wavedFlowers(pointers) {
+    const { meadow } = this;
+    const hits = [];
+    const head = this.head ?? (this.head = new THREE.Vector3());
+    const closest = this.closest ?? (this.closest = new THREE.Vector3());
+    const previous = this.previous ?? (this.previous = new THREE.Vector3());
+
+    for (const pointer of pointers) {
+      if (!pointer.active) continue;
+      const { ray, previousRay } = pointer;
+      for (const i of meadow.nearSlots.value.array) {
+        if (i < 0) continue;
+        const flower = meadow.flowers[i];
+        head.copy(flower.position).add(flower.headOffset);
+        const depth = head.dot(ray.direction) - ray.origin.dot(ray.direction); // (bol − oorsprong) · richting
+        if (depth <= 0) continue;
+        closest.copy(ray.direction).multiplyScalar(depth).add(ray.origin);
+        if (closest.distanceTo(head) > meadow.headRadius * flower.scale + pointer.touchMargin) continue;
+        // Snelheid van de aanwijzer op die diepte (zelfde als in de shader)
+        previous.copy(previousRay.direction).multiplyScalar(depth).add(previousRay.origin);
+        const speed = closest.distanceTo(previous) / this.uDelta.value;
+        if (speed > RUB_MIN_SPEED) hits.push({ i, speed });
+      }
+    }
+    hits.sort((a, b) => b.speed - a.speed);
+    return hits.slice(0, WAVE_FLOWERS).map((hit) => hit.i);
   }
 }
 
