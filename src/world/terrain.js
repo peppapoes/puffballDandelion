@@ -1,9 +1,5 @@
 import { Fn, sin, cos } from 'three/tsl';
 
-/**
- * Hoogte van de glooiende wei op positie (x, z).
- * Gebruikt door de grond (vorm) en door de wei (bloemen op de grond plaatsen).
- */
 export function heightAt(x, z) {
   return (
     Math.sin(x * 0.15) * 0.8 +
@@ -12,7 +8,6 @@ export function heightAt(x, z) {
   );
 }
 
-/** Dezelfde hoogte als heightAt, maar als TSL-functie voor shaders op de GPU (xz = vec2) */
 export const heightAtNode = Fn(([xz]) =>
   sin(xz.x.mul(0.15)).mul(0.8)
     .add(cos(xz.y.mul(0.12)).mul(0.6))

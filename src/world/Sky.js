@@ -7,27 +7,6 @@ import {
 } from 'three/tsl';
 import { uSunHeight, uSunDirection, uHorizonColor } from '../state/worldState.js';
 
-/**
- * De lucht: TSL-port van "Circadian" by Kiri
- * https://www.shadertoy.com/view/stdBWN
- * Origineel (GLSL) ter referentie in shaders/original/circadian.glsl
- *
- * Fysiek gebaseerde atmosfeer (Rayleigh + Mie scattering) met wolken,
- * sterren, noorderlicht en een spiegeling onder de horizon.
- *
- * Aanpassingen t.o.v. het origineel:
- * - kijkrichting komt van de Three.js-camera i.p.v. vaste schermcoördinaten
- * - zonnestand komt uit uTimeOfDay (pijltjes) i.p.v. automatisch uit iTime
- * - iChannel0 ("RGBA Noise Small") wordt in code nagemaakt
- * - uitgeschakelde onderdelen (regen, simple sun, blur) zijn weggelaten
- * - onder de horizon de nevelkleur i.p.v. een waterspiegeling (naadloos met de wei)
- * - geen gamma-correctie op het einde: Three.js doet de sRGB-omzetting zelf
- * - snelheid: atmosfeer, wolken en noorderlicht op lage resolutie (render target),
- *   sterren en horizonwaas op volle resolutie (zie class Sky onderaan)
- */
-
-// --- Instellingen (de #defines en consts uit het origineel) ---
-
 const CLOUDY = 0.5; // 0 = heldere lucht
 const HAZE = 0.01 * (CLOUDY * 20);
 const RAIN_MULTI = 5.0; // dikkere wolken
@@ -56,18 +35,10 @@ const bM = vec3(21e-6); // Mie-coëfficiënt
 const bR = vec3(5.8e-6, 13.5e-6, 33.1e-6); // Rayleigh-coëfficiënt (blauwe lucht)
 const C = vec3(0, -R0, 0); // middelpunt van de planeet
 
-// --- iChannel0: ruistextuur, nagemaakt in code ---
-
-/**
- * Maakt de Shadertoy-textuur "RGBA Noise Small" na (256x256).
- * De truc van iq: groen = rood verschoven over (37, 17). Zo leest Noise()
- * met één textuur-lookup twee lagen van 3D-ruis tegelijk.
- */
 function createNoiseTexture() {
   const SIZE = 256;
   const data = new Uint8Array(SIZE * SIZE * 4);
 
-  // Vaste seed: elke keer dezelfde wolken
   let seed = 1337;
   const random = () => {
     seed = (seed + 0x6d2b79f5) | 0;
@@ -98,14 +69,10 @@ function createNoiseTexture() {
 
 const noiseTexture = createNoiseTexture();
 
-// --- Ruis ---
-
-/** 2D-ruis: één textuur-lookup ('noise' in het origineel) */
 const noise2D = Fn(([v]) => {
   return texture(noiseTexture, v.add(0.5).div(256)).level(0).r;
 }, { v: 'vec2', return: 'float' });
 
-/** 3D-ruis by iq ('Noise' in het origineel) */
 const noise3D = Fn(([x]) => {
   const p = floor(x);
   const f = fract(x).toVar();
@@ -116,7 +83,6 @@ const noise3D = Fn(([x]) => {
   return mix(rg.x, rg.y, f.z);
 }, { x: 'vec3', return: 'float' });
 
-/** Fractale ruis: 6 lagen ruis op elkaar, schuift mee in de tijd */
 const fnoise = Fn(([pIn]) => {
   const p = pIn.mul(0.25).toVar();
   const f = float(0).toVar();
@@ -136,19 +102,12 @@ const fnoise = Fn(([pIn]) => {
   return f;
 }, { pIn: 'vec3', return: 'float' });
 
-// --- Atmosfeer en wolken ---
-
-/** Wolkendichtheid op een punt */
 const cloud = Fn(([p]) => {
   const cld = smoothstep(0.44, 0.64, fnoise(p.mul(CLOUD_NOISE)).add(CLOUDY * 0.1)).toVar();
   cld.mulAssign(cld.mul(5 * RAIN_MULTI));
   return cld.add(HAZE);
 }, { p: 'vec3', return: 'float' });
 
-/**
- * Luchtdichtheid op een punt: x = Rayleigh (lucht), y = Mie (waas + wolken).
- * In het origineel een functie met twee 'out'-parameters; hier één vec2.
- */
 const densities = Fn(([pos]) => {
   const h = length(pos.sub(C)).sub(R0);
   const rayleigh = exp(h.negate().div(HR));
@@ -156,13 +115,11 @@ const densities = Fn(([pos]) => {
 
   const cld = float(0).toVar();
   If(h.greaterThan(MIN_CLOUD_HEIGHT).and(h.lessThan(MAX_CLOUD_HEIGHT)), () => {
-    // Wolken schuiven met de tijd (xaxiscloud / zaxiscloud)
     const moved = pos.add(vec3(time.mul(5e2), 0, time.mul(6e2)));
     cld.assign(cloud(moved).mul(CLOUDY));
     cld.mulAssign(sin(h.sub(MIN_CLOUD_HEIGHT).mul(3.1415).div(MIN_CLOUD_HEIGHT)).mul(CLOUDY));
   });
 
-  // ORIG_CLOUD: geen wolken vlak boven de camera
   If(dist.lessThan(CLOUD_FAR), () => {
     cld.mulAssign(clamp(float(1).sub(float(CLOUD_FAR).sub(dist).div(CLOUD_FAR - CLOUD_NEAR)), 0, 1));
   });
@@ -171,7 +128,6 @@ const densities = Fn(([pos]) => {
   return vec2(rayleigh, mie);
 }, { pos: 'vec3', return: 'vec2' });
 
-/** Afstand tot waar een straal de bol met straal R verlaat (-1 = mist de bol) */
 const escape = Fn(([p, d, R]) => {
   const v = p.sub(C);
   const b = dot(v, d);
@@ -183,11 +139,6 @@ const escape = Fn(([p, d, R]) => {
   return select(det2.lessThan(0), float(-1), select(t1.greaterThanEqual(0), t1, t2));
 }, { p: 'vec3', d: 'vec3', R: 'float', return: 'float' });
 
-/**
- * Lichtverstrooiing langs de kijkstraal (de kleur van de lucht).
- * xyz = kleur, w = totale Mie-diepte (voor 'scat' in mainImage).
- * Uitleg: scratchapixel.com — simulating the colors of the sky
- */
 const scatter = Fn(([o, d]) => {
   const L = escape(o, d, float(RA));
   const mu = dot(d, uSunDirection);
@@ -210,7 +161,6 @@ const scatter = Fn(([o, d]) => {
 
     const Ls = escape(p, uSunDirection, float(RA)).toVar();
     If(Ls.greaterThan(0), () => {
-      // Hoeveel licht van de zon tot hier geraakt
       const dls = Ls.div(STEPS_SUN);
       const depthRs = float(0).toVar();
       const depthMs = float(0).toVar();
@@ -228,12 +178,9 @@ const scatter = Fn(([o, d]) => {
     });
   });
 
-  // Mie (waas) + NICE_HACK_SUN (zonneschijf) + Rayleigh (blauw)
   const col = M.mul(bM).mul(phaseM.mul(I).add(phaseS.mul(SI))).add(R.mul(bR).mul(phaseR.mul(I)));
   return vec4(col, depthM);
 }, { o: 'vec3', d: 'vec3', return: 'vec4' });
-
-// --- Sterren ---
 
 const hash33 = Fn(([pIn]) => {
   const p = fract(pIn.mul(vec3(443.8975, 397.2973, 491.1871))).toVar();
@@ -259,16 +206,12 @@ const stars = Fn(([pIn]) => {
   return c.mul(c).mul(0.8);
 }, { pIn: 'vec3', return: 'vec3' });
 
-// --- Noorderlicht (by nimitz) ---
-
-/** v * mat2(c, s, -s, c) uit het origineel ('mm2') */
 const rotate = (v, angle) => {
   const c = cos(angle);
   const s = sin(angle);
   return vec2(v.x.mul(c).add(v.y.mul(s)), v.y.mul(c).sub(v.x.mul(s)));
 };
 
-/** v * mat2(0.95534, 0.29552, -0.29552, 0.95534) uit het origineel ('m2') */
 const rotateM2 = (v) => vec2(v.x.mul(0.95534).add(v.y.mul(0.29552)), v.y.mul(0.95534).sub(v.x.mul(0.29552)));
 
 const tri = Fn(([x]) => clamp(abs(fract(x).sub(0.5)), 0.01, 0.49), { x: 'float', return: 'float' });
@@ -298,7 +241,6 @@ const triNoise2d = Fn(([pIn, spd]) => {
 
 const hash21 = Fn(([n]) => fract(sin(dot(n, vec2(12.9898, 4.1414))).mul(43758.5453)), { n: 'vec2', return: 'float' });
 
-/** 'dither' = hash21(gl_FragCoord.xy), als parameter want functies kennen gl_FragCoord niet */
 const aurora = Fn(([roIn, rd, dither]) => {
   const ro = roIn.mul(1e-5);
   const col = vec4(0).toVar();
@@ -319,21 +261,11 @@ const aurora = Fn(([roIn, rd, dither]) => {
   return col.mul(2.8);
 }, { roIn: 'vec3', rd: 'vec3', dither: 'float', return: 'vec4' });
 
-// --- mainImage, opgesplitst voor de snelheid ---
-
-// Waas aan de horizon: onder HAZE_BOTTOM volledig nevelkleur, boven HAZE_TOP volledig lucht (±3°)
 const HAZE_BOTTOM = -0.005;
 const HAZE_TOP = 0.05;
 
-// Resolutie van de dure lucht t.o.v. het scherm, per as (0.25 = 1/16 van de pixels).
-// Atmosfeer en wolken zijn zacht: uitvergroten zie je nauwelijks. Sterren blijven scherp.
 const SKY_RESOLUTION = 0.25;
 
-/**
- * Het dure deel (atmosfeer, wolken, noorderlicht): wordt op lage resolutie
- * in een textuur gerenderd. Onder de horizon wordt niets berekend, want daar
- * toont de achtergrond toch alleen de nevelkleur.
- */
 function createSkyColorNode() {
   return Fn(() => {
     const D = normalize(positionWorldDirection); // kijkrichting van de camera
@@ -347,7 +279,6 @@ function createSkyColorNode() {
       const scat = bM.mul(scattered.w).mul(0.1).mul(scatatt);
       color.assign(scattered.xyz.add(scat.mul(0.1)));
 
-      // Noorderlicht alleen als de zon onder is
       If(uSunHeight.lessThan(0.5), () => {
         const fade = smoothstep(0, 0.01, abs(D.y)).mul(0.5).add(0.9);
         const dither = hash21(screenCoordinate.xy);
@@ -360,17 +291,11 @@ function createSkyColorNode() {
   })();
 }
 
-/**
- * De achtergrond op volle resolutie: uitvergrote lucht + scherpe sterren + waas.
- * Aanpassing voor de wei: onder de horizon geen waterspiegeling maar de nevelkleur,
- * exact dezelfde als de nevel over de grond (App.js). Zo is er nergens een naad.
- */
 function createBackgroundNode(skyTexture) {
   return Fn(() => {
     const D = normalize(positionWorldDirection);
     const color = texture(skyTexture, screenUV).rgb.toVar();
 
-    // Sterren (goedkoop, maar pixelscherp): alleen boven de horizon en als het donker genoeg is
     If(D.y.greaterThan(0).and(uSunHeight.lessThan(0.5)), () => {
       const O = vec3(0, CAMERA_HEIGHT, 0);
       const O1 = O.add(D.mul(O.y.div(D.y)));
@@ -384,21 +309,14 @@ function createBackgroundNode(skyTexture) {
   })();
 }
 
-/**
- * De lucht: rendert elke frame eerst het dure deel in een kleine textuur
- * (met dezelfde camera, zodat de kijkrichting klopt), en gebruikt die als
- * achtergrond van de echte scène.
- */
 export class Sky {
   constructor() {
-    // HalfFloat: kleuren boven 1 (de zon) mogen niet afgekapt worden
     this.target = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
     this.skyScene = new THREE.Scene();
     this.skyScene.backgroundNode = createSkyColorNode();
     this.backgroundNode = createBackgroundNode(this.target.texture);
   }
 
-  /** width/height = grootte van het canvas in echte pixels (drawing buffer) */
   setSize(width, height) {
     this.target.setSize(
       Math.max(1, Math.round(width * SKY_RESOLUTION)),
@@ -406,7 +324,6 @@ export class Sky {
     );
   }
 
-  /** Elke frame, vóór de scène: dure lucht in de textuur renderen */
   render(renderer, camera) {
     const previous = renderer.getRenderTarget();
     renderer.setRenderTarget(this.target);

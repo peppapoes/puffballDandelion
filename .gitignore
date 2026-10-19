@@ -4,3 +4,6 @@ dist/
 
 # Automatische back-ups van Blender (model.blend1, model.blend2, ...)
 *.blend[0-9]*
+
+# Instellingen van Claude Code (lokaal, niet voor het project)
+.claude/

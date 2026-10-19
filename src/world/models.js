@@ -3,20 +3,6 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const MODEL_URL = './models/puffballSimple.glb'; // export van blender/puffballSimple.blend
 
-/**
- * Laadt het Blender-model van de paardenbloem en zet de onderdelen klaar voor de wei:
- * - Stem: verschoven zodat de onderkant van de steel op (0, 0, 0) staat, met de shape key
- *   "Buigen" als eigen attributen (bendPosition, bendNormal) en gebakken AO (aoMap)
- * - Puffball: de bol (receptacle), midden op (0, 0, 0), met de shape key "Kaal"
- *   (barePosition, bareNormal): de bol zonder pluisjes
- * - Seed: het pluisje, gesplitst in pappus (parachuutje) en achene (zaadje);
- *   oorsprong onderaan het zaadje, wijst omhoog (+Y), met de shape key "Open"
- *   (openPosition, openNormal): het parachuutje volledig open, zoals in de vlucht
- * Shape keys worden eigen attributen, zodat de vertex-shaders ze per bloem of per pluisje
- * zelf aansturen (Three.js zou ze anders voor alle instances tegelijk toepassen).
- * Alles wordt geschaald met `scale`. De afstand van de voet tot het midden van de bol
- * komt uit de Blender-scène zelf (headCenter).
- */
 export async function loadPuffballModel(scale) {
   const gltf = await new GLTFLoader().loadAsync(MODEL_URL);
   gltf.scene.updateMatrixWorld(true);
@@ -28,22 +14,17 @@ export async function loadPuffballModel(scale) {
   const pappus = seedParts.find((mesh) => /pappus/i.test(mesh.material.name)) ?? seedParts[0];
   const achene = seedParts.find((mesh) => mesh !== pappus);
 
-  // Steel: voet = midden van de onderste ring punten (de oorsprong in Blender ligt in het midden)
   const stemGeometry = worldGeometry(stem);
-  // Shape key "Buigen" uit Blender (morph target): per punt de verschuiving bij volle buiging naar +X.
-  // Eerst eruit halen: anders telt computeBoundingBox de gebogen vorm mee en vindt hij de voet niet.
   const bend = takeShapeKey(stemGeometry, stem, 'Buigen', 'bend', { required: true });
   const base = lowestRingCenter(stemGeometry);
   stemGeometry.translate(-base.x, -base.y, -base.z);
 
-  // Midden van de bol t.o.v. de voet, zoals in de Blender-scène
   const headCenter = head.getWorldPosition(new THREE.Vector3()).sub(base);
   const receptacleGeometry = head.geometry.clone();
   const bare = takeShapeKey(receptacleGeometry, head, 'Kaal', 'bare'); // eerst eruit: anders telt de kale vorm mee
   receptacleGeometry.computeBoundingSphere();
   const receptacleRadius = receptacleGeometry.boundingSphere.radius;
 
-  // Pluisje: eigen geometrie, zonder de verschuiving van het object in de scène
   const pappusGeometry = pappus.geometry.clone();
   const open = takeShapeKey(pappusGeometry, pappus, 'Open', 'open');
   const acheneGeometry = achene?.geometry.clone();
@@ -53,7 +34,6 @@ export async function loadPuffballModel(scale) {
   for (const geometry of [stemGeometry, receptacleGeometry, pappusGeometry, acheneGeometry]) {
     geometry?.scale(scale, scale, scale);
   }
-  // scale() verschaalt alleen de vaste attributen (position, normal), de vormen van de shape keys zelf doen
   const scaling = new THREE.Matrix4().makeScale(scale, scale, scale);
   for (const shape of [bend, bare, open]) shape.position.applyMatrix4(scaling);
   const bendTop = topOffset(stemGeometry, bend.position);
@@ -85,12 +65,10 @@ function findMesh(root, name) {
   return mesh;
 }
 
-/** Geometrie met de transformatie van het object erin verwerkt */
 function worldGeometry(mesh) {
   return mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
 }
 
-/** Gemiddelde van de punten in de onderste 2% van de hoogte: het midden van de voet */
 function lowestRingCenter(geometry) {
   geometry.computeBoundingBox();
   const { min, max } = geometry.boundingBox;
@@ -109,12 +87,6 @@ function lowestRingCenter(geometry) {
   return center.divideScalar(count);
 }
 
-/**
- * Shape key uit Blender (glTF morph target) → eigen attributen `${prefix}Position` en `${prefix}Normal`:
- * per punt de verschuiving bij waarde 1 (glTF bewaart een shape key als verschuiving t.o.v. de basisvorm).
- * Daarna verwijderd uit de geometrie: Three.js zou hem anders zelf toepassen, voor alle instances
- * tegelijk en in dezelfde richting. Ontbreekt hij (oudere export), dan worden het nullen: geen vervorming.
- */
 function takeShapeKey(geometry, mesh, name, prefix, { required = false } = {}) {
   const index = mesh.morphTargetDictionary?.[name]; // naam → nummer, uit extras.targetNames van de glTF
   let position = geometry.morphAttributes.position?.[index]?.clone();
@@ -129,7 +101,6 @@ function takeShapeKey(geometry, mesh, name, prefix, { required = false } = {}) {
   return { position };
 }
 
-/** Verschuiving van het hoogste punt (de top van de steel, waar de bol op komt) */
 function topOffset(geometry, offsets) {
   const points = geometry.attributes.position;
   let top = 0;
@@ -137,7 +108,6 @@ function topOffset(geometry, offsets) {
   return new THREE.Vector3().fromBufferAttribute(offsets, top);
 }
 
-/** Blender-materiaal → node-materiaal (nodig om er TSL-shaders aan te hangen) */
 function toNodeMaterial(source) {
   const material = new THREE.MeshStandardNodeMaterial({
     color: source.color,

@@ -1,15 +1,3 @@
-/**
- * Prestatiemeter: zet ?debug achter de URL om het paneel te tonen.
- * Paneel: fps, frametijd, CPU-tijd per onderdeel, draw calls en driehoeken.
- *
- * Voor de echte kost per frame (JavaScript + GPU): typ in de browserconsole
- *   await app.benchmark()
- * Dat rendert zelf frames en wacht telkens tot de GPU klaar is. Betrouwbaarder dan
- * GPU-timestamps, die op een Mac sterk schommelen.
- *
- * Zonder ?debug doen begin/end niets en kost hij niets.
- */
-
 import { RenderTarget, Vector2 } from 'three/webgpu';
 
 export const DEBUG =new URLSearchParams(window.location.search).has('debug');
@@ -48,17 +36,14 @@ export class PerfMonitor {
     this.averages[name] = previous === undefined ? ms : previous + (ms - previous) * SMOOTHING;
   }
 
-  /** Een extra regel tekst in het paneel (bv. de meetwaarden van de microfoon) */
   info(name, text) {
     if (this.enabled) this.infos[name] = text;
   }
 
-  /** Iets dat niet elke frame gebeurt (bv. een handdetectie) tellen: het paneel toont het aantal per seconde */
   count(name) {
     if (this.enabled) this.counts[name] = (this.counts[name] ?? 0) + 1;
   }
 
-  /** Eén keer per frame, na het renderen */
   frame(delta) {
     if (!this.enabled) return;
     if (delta > 0) this.record('frame', delta * 1000);
@@ -98,12 +83,6 @@ export class PerfMonitor {
   }
 }
 
-/**
- * Echte kost per frame: render-loop pauzeren, zelf frames renderen en na elke frame
- * wachten tot de GPU klaar is. Er wordt naar een onzichtbare render target van
- * schermgrootte gerenderd: naar het canvas zou elke frame op het scherm wachten
- * (60 Hz), en dan zie je nooit minder dan 16,7 ms.
- */
 export async function benchmark(app, frames = 60) {
   const { renderer } = app;
   const device = renderer.backend.device;

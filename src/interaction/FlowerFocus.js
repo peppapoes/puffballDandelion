@@ -7,15 +7,6 @@ const FLY_DURATION = 1.2; // seconden voor het inzoomen en terugkeren
 const FOCUS_DISTANCE = 3.5; // × straal van de pluizenbol: zo ver staat de camera na het inzoomen
 const FOCUS_ELEVATION = THREE.MathUtils.degToRad(20); // een beetje van boven op de bol kijken
 
-/**
- * Inzoomen op één bloem:
- * - klik op een bloem: camera en draaipunt glijden vloeiend naar de pluizenbol
- * - ingezoomd: rond de bloem draaien en dichterbij komen (FOCUS_LIMITS)
- * - Escape of een klik naast de bloem: terug naar waar je in de wei stond
- *
- * Alleen de camera verandert: wind, physics en vuurvliegjes lopen gewoon door.
- * De gekozen bloem beweegt nog maar zachtjes (meadow.uFocusIndex / uFocusHold).
- */
 export class FlowerFocus {
   constructor(camera, controls, canvas, meadow) {
     this.camera = camera;
@@ -43,16 +34,10 @@ export class FlowerFocus {
     });
   }
 
-  /** Minimale hoogte van de camera boven de grond: laag bij een bloem (en onderweg), hoog in de wei */
   get minHeight() {
     return this.focused !== null ? FOCUS_LIMITS.minHeight : OVERVIEW_LIMITS.minHeight;
   }
 
-  /**
-   * Voor de scherptediepte (core/postprocessing.js): null in de wei, anders
-   * strength (0..1, glijdt mee met de overgang), de afstand tot de bol langs de kijkrichting
-   * en de straal van de bol
-   */
   get depthOfField() {
     const strength = this.meadow.uFocusHold.value;
     if (this.focused === null || strength <= 0) return null;
@@ -78,11 +63,6 @@ export class FlowerFocus {
     }
   }
 
-  /**
-   * Welke bloem raakt de straal? De bol in rust (zonder wind) die het dichtst bij de straal
-   * ligt en het dichtst bij de camera staat. Op de CPU: de GPU-instances kan de gewone
-   * raycaster niet zien, en 4000 bollen nakijken bij een klik is snel genoeg.
-   */
   pick(ray) {
     const head = new THREE.Vector3();
     let best = null;
@@ -100,13 +80,11 @@ export class FlowerFocus {
     return best;
   }
 
-  /** Inzoomen op bloem i: camera schuin voor de bol, aan de kant waar je al stond */
   focus(i) {
     const flower = this.meadow.flowers[i];
     const head = flower.position.clone().add(flower.headOffset);
     const radius = this.meadow.headRadius * flower.scale;
 
-    // Richting van de bol naar de camera, horizontaal: je blijft aan dezelfde kant staan
     const side = this.camera.position.clone().sub(head).setY(0).normalize();
     const distance = FOCUS_DISTANCE * radius;
     const position = head.clone()
@@ -121,7 +99,6 @@ export class FlowerFocus {
     this.fly(position, head, 1, () => applyCameraLimits(this.controls, FOCUS_LIMITS, radius));
   }
 
-  /** Terug naar de wei, naar waar je stond voor het inzoomen */
   back() {
     if (this.focused === null || this.flight) return;
     this.fly(this.saved.position, this.saved.target, 0, () => {
@@ -131,7 +108,6 @@ export class FlowerFocus {
     });
   }
 
-  /** Overgang starten: camera, draaipunt en "vasthouden" van de bloem glijden samen */
   fly(position, target, hold, onDone) {
     this.flight = {
       fromPosition: this.camera.position.clone(),
@@ -146,7 +122,6 @@ export class FlowerFocus {
     this.controls.enabled = false; // niet slepen tijdens de overgang
   }
 
-  /** Elke frame (in plaats van controls.update()): overgang afspelen of de camera gewoon laten draaien */
   update(delta) {
     const flight = this.flight;
     if (!flight) {
@@ -170,7 +145,6 @@ export class FlowerFocus {
   }
 }
 
-/** Zacht vertrekken, zacht landen: traag → snel → traag */
 function easeInOutCubic(t) {
   return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
 }

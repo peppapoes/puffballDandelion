@@ -8,28 +8,13 @@ const PAUSE = 8; // s tussen twee tips
 const FOCUS_HINT_TIME = 6; // s: tip "terug naar de wei" na het inzoomen op een bloem
 const MOUSE_TRAVEL = 1500; // px muisbeweging over de wei: dan heb je de eerste tip al ontdekt
 
-/**
- * Tips na het starten. Eerst één in het midden van het scherm: slepen om rond te kijken,
- * scrollen om te zoomen. Die verdwijnt zodra je de camera zelf beweegt (OrbitControls).
- *
- * Daarna een zacht kaartje onderaan dat vertelt wat je nog kan proberen,
- * met een knop om het meteen te doen (bv. de camera aanzetten). De bijhorende knop
- * rechtsonder pulseert zolang de tip staat.
- *
- * De tips komen één voor één. Een tip die je al gedaan hebt (camera staat al aan, je bent al
- * ingezoomd, ...) wordt overgeslagen, en verdwijnt vanzelf als je hem uitvoert terwijl hij staat.
- */
 export class Hints {
   constructor({ cameraVision, microphone, flowerFocus, controls }) {
-    // Tip bovenaan zodra je op een bloem ingezoomd bent: hoe kom je terug naar de wei?
     this.flowerFocus = flowerFocus;
     this.focusHint = document.getElementById('focus-hint');
     this.focusTimer = 0;
     this.wasZoomed = false;
 
-    // Tip in het midden: heb je al zelf rondgekeken of gezoomd? 'start' = je begint te slepen of
-    // te scrollen, 'change' = de camera beweegt (ook door de vloeiende inzoom-vlucht, daarom
-    // alleen tellen tussen 'start' en 'end')
     this.center = document.getElementById('center-hint');
     this.centerTimer = -CENTER_DELAY;
     this.lookedAround = false;
@@ -40,14 +25,12 @@ export class Hints {
       if (dragging) this.lookedAround = true;
     });
 
-    // Hoeveel heb je de muis al door de wei bewogen (px)? Zo weten we of de eerste tip nog nodig is
     this.mouseTravel = 0;
     this.canvas = document.getElementById('scene');
     this.canvas.addEventListener('pointermove', (event) => {
       if (event.pointerType === 'mouse') this.mouseTravel += Math.hypot(event.movementX, event.movementY);
     });
 
-    // done(): is deze tip al uitgevoerd? action: wat de knop op het kaartje doet
     this.hints = [
       {
         icon: '🌾',
@@ -96,14 +79,11 @@ export class Hints {
     });
   }
 
-  /** Na de klik op het startscherm */
   start() {
     this.started = true;
   }
 
-  /** Elke frame: eerst de tip in het midden, daarna de volgende tip onderaan */
   update(delta) {
-    // Na een haperend frame (bv. het opstarten van het geluid) niet in één keer een tip overslaan
     delta = Math.min(delta, 0.1);
     this.updateFocusHint(delta); // ook als alle andere tips al gezien zijn
     if (!this.started) return;
@@ -120,7 +100,6 @@ export class Hints {
     }
     if (this.timer < 0) return;
 
-    // Volgende tip die je nog niet gedaan hebt
     do this.index++;
     while (this.index < this.hints.length && this.hints[this.index].done());
     if (this.index >= this.hints.length) {
@@ -130,10 +109,6 @@ export class Hints {
     this.show(this.hints[this.index]);
   }
 
-  /**
-   * Ingezoomd op een bloem (en de camera is aangekomen): tip bovenaan, FOCUS_HINT_TIME lang.
-   * Elke keer opnieuw als je inzoomt; terug naar de wei = meteen weg.
-   */
   updateFocusHint(delta) {
     const zoomed = this.flowerFocus.focused !== null && !this.flowerFocus.flight;
     if (zoomed && !this.wasZoomed) {
@@ -153,7 +128,6 @@ export class Hints {
     }
   }
 
-  /** Tip in het midden: na CENTER_DELAY tonen, weg als je rondkijkt of na CENTER_TIME */
   updateCenter(delta) {
     this.centerTimer += delta;
     const visible = !this.center.hidden;
@@ -162,7 +136,6 @@ export class Hints {
       this.center.hidden = false;
       return;
     }
-    // Ook weg als je op een bloem inzoomt: anders staat ze midden over de pluizenbol
     const zooming = this.flowerFocus.focused !== null;
     if (this.lookedAround || zooming || this.centerTimer > CENTER_TIME) {
       this.centerDone = true; // vanaf nu de tips onderaan (na FIRST_DELAY)
@@ -184,7 +157,6 @@ export class Hints {
     this.root.hidden = false;
   }
 
-  /** Zacht laten verdwijnen (CSS-animatie), daarna pas verbergen */
   hide() {
     if (!this.showing) return;
     this.showing = false;
